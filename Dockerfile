@@ -1,16 +1,6 @@
-FROM node:20-alpine AS builder
-
-# Install build dependencies
-RUN apk add --no-cache python3 make g++
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
-
-# ============================================
 FROM node:20-alpine
 
-# Install runtime dependencies only
+# Install system dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -27,13 +17,16 @@ RUN addgroup -g 1001 botgroup && \
 
 WORKDIR /app
 
-# Copy dependencies from builder
-COPY --from=builder /app/node_modules ./node_modules
+# Copy package files
+COPY package*.json ./
 
-# Copy source
+# Install dependencies (npm install, bukan npm ci)
+RUN npm install --omit=dev && npm cache clean --force
+
+# Copy source code
 COPY --chown=botuser:botgroup . .
 
-# Create directories with proper permissions
+# Create directories
 RUN mkdir -p temp data logs && \
     chown -R botuser:botgroup temp data logs && \
     chmod 755 temp data logs
