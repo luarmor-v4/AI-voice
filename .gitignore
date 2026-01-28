@@ -1,9 +1,6 @@
-# .gitignore
 node_modules/
 .env
-temp/*.mp3
-temp/*.wav
-temp/*.pcm
-!temp/.gitkeep
+temp/
+data/
 *.log
 .DS_Store
