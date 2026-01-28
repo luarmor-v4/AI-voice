@@ -1,4 +1,3 @@
-# Base image dengan Node.js dan Python
 FROM node:20-slim
 
 # Install dependencies untuk audio processing
@@ -11,7 +10,11 @@ RUN apt-get update && apt-get install -y \
     libopus-dev \
     libsodium23 \
     libsodium-dev \
+    libtool \
+    autoconf \
+    automake \
     build-essential \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Install edge-tts via pip
@@ -23,8 +26,11 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install Node.js dependencies (UBAH INI)
+# Install Node.js dependencies
 RUN npm install --omit=dev
+
+# Rebuild sodium-native untuk platform yang benar
+RUN npm rebuild sodium-native
 
 # Copy source code
 COPY . .
@@ -35,7 +41,7 @@ RUN mkdir -p temp && chmod 777 temp
 # Set environment
 ENV NODE_ENV=production
 
-# Expose port (untuk health check Render)
+# Expose port
 EXPOSE 3000
 
 # Start bot
