@@ -524,56 +524,28 @@ const AI_PROVIDERS = {
     requiresKey: true,
     keyEnv: 'OPENROUTER_API_KEY',
     models: [
-        // Google
-        { id: 'google/gemini-2.5-flash-preview:free', name: 'Gemini 2.5 Flash', version: '2.5-flash', category: 'google' },
-        { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash', version: '2.0-flash', category: 'google' },
-        { id: 'google/gemma-3n-2b:free', name: 'Gemma 3n 2B', version: '3n-2B', category: 'google' },
+        // User Requested Models
+        { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large', category: 'arcee' },
+        { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)', version: 'Pro-3', category: 'upstage' },
+        { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking (free)', version: '1.2B', category: 'liquid' },
+        { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B', category: 'liquid' },
+        { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B', category: 'allenai' },
+        { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T', category: 'tngtech' },
+        { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air', category: 'z-ai' },
+        { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B', category: 'cognitivecomputations' },
+        { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B', category: 'google' },
+        { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2', category: 'tngtech' },
+        { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528', category: 'deepseek' },
+        { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B', category: 'mistral' },
         
-        // Upstage
-        { id: 'upstage/trinity-large-preview:free', name: 'Trinity Large Preview', version: 'Large', category: 'upstage' },
-        { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3', version: 'Pro-3', category: 'upstage' },
-        
-        // Liquid
-        { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking', version: '2.5-1.2B', category: 'liquid' },
-        { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct', version: '2.5-1.2B', category: 'liquid' },
-        
-        // Black Forest Labs
-        { id: 'black-forest-labs/flux-2-klein-4b', name: 'FLUX.2 Klein 4B', version: 'Klein-4B', category: 'black-forest' },
-        
-        // AllenAI
-        { id: 'allenai/molmo2-8b:free', name: 'Molmo2 8B', version: '8B', category: 'allenai' },
-        
-        // Seedream
-        { id: 'seedream/seedream-4.5', name: 'Seedream 4.5', version: '4.5', category: 'seedream' },
-        
-        // THUDM
-        { id: 'thudm/glm-4-air:free', name: 'GLM 4.5 Air', version: '4.5-Air', category: 'thudm' },
-        
-        // DeepSeek
-        { id: 'deepseek/deepseek-r1:free', name: 'DeepSeek R1', version: 'R1', category: 'deepseek' },
-        { id: 'deepseek/deepseek-r1-zero:free', name: 'DeepSeek R1 Zero', version: 'R1-zero', category: 'deepseek' },
-        { id: 'deepseek/deepseek-r1t-chimera:free', name: 'R1T Chimera', version: 'R1T', category: 'deepseek' },
-        { id: 'deepseek/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera', version: 'R1T2', category: 'deepseek' },
-        { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528', version: '0528', category: 'deepseek' },
-        
-        // Meta Llama
-        { id: 'meta-llama/llama-4-maverick:free', name: 'Llama 4 Maverick', version: 'Maverick', category: 'meta' },
-        { id: 'meta-llama/llama-4-scout:free', name: 'Llama 4 Scout', version: 'Scout', category: 'meta' },
-        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B', version: '70B', category: 'meta' },
-        
-        // Mistral
-        { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B', version: '24B', category: 'mistral' },
-        
-        // Qwen
-        { id: 'qwen/qwen3-32b:free', name: 'Qwen3 32B', version: '32B', category: 'qwen' },
-        
-        // Uncensored
-        { id: 'openrouter/uncensored:free', name: 'Uncensored', version: 'v1', category: 'special' },
-        
-        // Amazon Nova
-        { id: 'amazon/nova-micro-v1', name: 'Nova Micro', version: 'Micro', category: 'amazon' },
-        { id: 'amazon/nova-lite-v1', name: 'Nova Lite', version: 'Lite', category: 'amazon' },
-        { id: 'amazon/nova-pro-v1', name: 'Nova Pro', version: 'Pro', category: 'amazon' }
+        // Bonus Free Models
+        { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash', category: 'google' },
+        { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B', category: 'meta' },
+        { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B', category: 'meta' },
+        { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder', category: 'qwen' },
+        { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2', category: 'moonshot' },
+        { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B', category: 'openai' },
+        { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B', category: 'nous' }
     ]
 },
 
