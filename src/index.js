@@ -1221,6 +1221,34 @@ function generateTTS(text, voice) {
 
 // ==================== VOICE FUNCTIONS ====================
 
+// Force encryption mode
+process.env.DISCORD_VOICE_ENCRYPTION_MODE = 'xsalsa20_poly1305_lite';
+
+async function joinUserVoiceChannel(member, guild) {
+    const vc = member?.voice?.channel;
+    if (!vc) return { success: false, error: 'Masuk voice channel dulu' };
+
+    try {
+        const existingConn = getVoiceConnection(guild.id);
+        if (existingConn && existingConn.joinConfig.channelId === vc.id) {
+            return { success: true, channel: vc, alreadyConnected: true };
+        }
+
+        if (existingConn) {
+            existingConn.destroy();
+            voiceConnections.delete(guild.id);
+            audioPlayers.delete(guild.id);
+        }
+
+        const conn = joinVoiceChannel({
+            channelId: vc.id,
+            guildId: guild.id,
+            adapterCreator: guild.voiceAdapterCreator,
+            selfDeaf: false
+        });
+
+        // ... rest of code
+
 async function joinUserVoiceChannel(member, guild) {
     const vc = member?.voice?.channel;
     if (!vc) return { success: false, error: 'Masuk voice channel dulu' };
