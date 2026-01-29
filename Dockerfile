@@ -6,9 +6,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     make \
     g++ \
+    gcc \
     build-essential \
     pkg-config \
     ffmpeg \
+    opus-tools \
     libopus0 \
     libopus-dev \
     libsodium23 \
@@ -24,27 +26,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy package files first
+# Copy package files
 COPY package*.json ./
 
-# Install dependencies with native rebuild
+# Install Node dependencies with rebuild
 RUN npm install --omit=dev \
-    && npm rebuild sodium-native --build-from-source \
     && npm cache clean --force
 
-# Copy source code
+# Copy application code
 COPY . .
 
 # Create necessary directories
-RUN mkdir -p temp data logs && chmod 755 temp data logs
+RUN mkdir -p temp data logs \
+    && chmod 755 temp data logs
 
 # Environment variables
 ENV NODE_ENV=production \
-    NODE_OPTIONS="--max-old-space-size=512"
+    NODE_OPTIONS="--max-old-space-size=512" \
+    FFMPEG_PATH=/usr/bin/ffmpeg
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -f http://localhost:3000/ || exit 1
 
 EXPOSE 3000
+
 CMD ["node", "src/index.js"]
