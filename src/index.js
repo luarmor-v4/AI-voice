@@ -239,15 +239,6 @@ function shouldSearch(message) {
     return allTriggers.some(trigger => lower.includes(trigger));
 }
 
-function shouldSearch(message) {
-    const lower = message.toLowerCase();
-    
-    // Flatten all triggers into single array
-    const allTriggers = Object.values(SEARCH_TRIGGERS).flat();
-    
-    return allTriggers.some(trigger => lower.includes(trigger));
-}
-
 async function searchSerper(query) {
     if (!CONFIG.serperApiKey) return null;
     return new Promise((resolve) => {
@@ -1254,11 +1245,15 @@ async function joinUserVoiceChannel(member, guild) {
         ttsQueues.set(guild.id, { queue: [], playing: false, currentFile: null });
 
         player.on(AudioPlayerStatus.Idle, () => processNextInQueue(guild.id));
-        player.on('error', () => processNextInQueue(guild.id));
+        player.on('error', (err) => {
+            console.error('Audio player error:', err.message);
+            processNextInQueue(guild.id);
+        });
 
         return { success: true, channel: vc };
 
     } catch (e) {
+        console.error('Voice join error:', e.message);
         return { success: false, error: e.message };
     }
 }
@@ -1307,9 +1302,23 @@ function processNextInQueue(guildId) {
         const resource = createAudioResource(next.file, { inputType: StreamType.Arbitrary });
         player.play(resource);
     } catch (e) {
+        console.error('Audio resource error:', e.message);
         cleanupFile(next.file);
         processNextInQueue(guildId);
     }
+}
+
+async function playTTSInVoice(guildId, filePath) {
+    let queueData = ttsQueues.get(guildId);
+    if (!queueData) {
+        queueData = { queue: [], playing: false, currentFile: null };
+        ttsQueues.set(guildId, queueData);
+    }
+
+    queueData.queue.push({ file: filePath });
+
+    if (!queueData.playing) processNextInQueue(guildId);
+    return true;
 }
 
 async function playTTSInVoice(guildId, filePath) {
