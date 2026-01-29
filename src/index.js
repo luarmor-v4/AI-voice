@@ -211,8 +211,11 @@ const AI_PROVIDERS = {
         name: 'Google Gemini',
         models: [
             { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5' },
             { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0' },
-            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5' }
+            { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0' },
+            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5' },
+            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5' }
         ]
     },
     groq: {
@@ -220,7 +223,9 @@ const AI_PROVIDERS = {
         models: [
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: '3.3' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: '3.1' },
-            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' }
+            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B', version: '3.1' },
+            { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' }
         ]
     },
     openrouter: {
@@ -239,16 +244,51 @@ const AI_PROVIDERS = {
             { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
             { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
             { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0' },
-            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' }
+            { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
+            { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
+            { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
+            { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2' },
+            { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B' },
+            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' }
         ]
     },
     pollinations: {
         name: 'Pollinations',
         models: [
             { id: 'openai', name: 'OpenAI GPT', version: 'GPT' },
+            { id: 'openai-fast', name: 'OpenAI Fast', version: 'Fast' },
+            { id: 'openai-large', name: 'OpenAI Large', version: 'Large' },
+            { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3' },
             { id: 'claude', name: 'Claude', version: '3.5' },
+            { id: 'claude-fast', name: 'Claude Fast', version: 'Fast' },
+            { id: 'claude-large', name: 'Claude Large', version: 'Large' },
+            { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku' },
+            { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet' },
+            { id: 'gemini', name: 'Gemini', version: '2.0' },
+            { id: 'gemini-fast', name: 'Gemini Fast', version: 'Fast' },
+            { id: 'gemini-large', name: 'Gemini Large', version: 'Large' },
+            { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Think' },
             { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-            { id: 'gemini', name: 'Gemini', version: '2.0' }
+            { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
+            { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1' },
+            { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
+            { id: 'qwen-coder', name: 'Qwen Coder', version: 'Coder' },
+            { id: 'llama', name: 'Llama', version: '3.3' },
+            { id: 'mistral', name: 'Mistral', version: 'Small' },
+            { id: 'mistral-large', name: 'Mistral Large', version: 'Large' },
+            { id: 'grok', name: 'Grok', version: '4' },
+            { id: 'kimi', name: 'Kimi', version: 'K2' },
+            { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
+            { id: 'evil', name: 'Evil Mode', version: 'Uncensored' }
+        ]
+    },
+    huggingface: {
+        name: 'HuggingFace',
+        models: [
+            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '8B' },
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '70B' },
+            { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
+            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '72B' }
         ]
     }
 };
@@ -552,20 +592,52 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
         let response, grounded = false;
 
         switch (aiProvider) {
-            case 'gemini':
-                const geminiResult = await callGemini(aiModel, userMessage, history, finalSystemPrompt, useGeminiGrounding);
-                response = geminiResult.text;
-                grounded = geminiResult.grounded;
-                break;
-            case 'groq':
-                response = await callGroq(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            case 'openrouter':
-                response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
-                break;
-            default:
-                response = await callPollinations(aiModel, userMessage, history, finalSystemPrompt);
-        }
+    case 'gemini':
+        const geminiResult = await callGemini(aiModel, userMessage, history, finalSystemPrompt, useGeminiGrounding);
+        response = geminiResult.text;
+        grounded = geminiResult.grounded;
+        break;
+    case 'groq':
+        response = await callGroq(aiModel, userMessage, history, finalSystemPrompt);
+        break;
+    case 'openrouter':
+        response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
+        break;
+    case 'huggingface':
+        response = await callHuggingFace(aiModel, userMessage, history, finalSystemPrompt);
+        break;
+    case 'pollinations':
+    default:
+        response = await callPollinations(aiModel, userMessage, history, finalSystemPrompt);
+}
+
+async function callHuggingFace(model, message, history, systemPrompt) {
+    const apiKey = await manager.getActiveKey('huggingface', CONFIG.huggingfaceApiKey);
+    if (!apiKey) throw new Error('No HuggingFace API key');
+
+    let prompt = systemPrompt + '\n\n';
+    history.slice(-10).forEach(m => {
+        prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
+    });
+    prompt += `User: ${message}\nAssistant:`;
+
+    const { data, statusCode } = await httpRequest({
+        hostname: 'api-inference.huggingface.co',
+        path: `/models/${model}`,
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    }, JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 1000 } }));
+
+    if (statusCode !== 200) {
+        const result = JSON.parse(data);
+        throw new Error(result.error || `HTTP ${statusCode}`);
+    }
+
+    const result = JSON.parse(data);
+    if (result.error) throw new Error(result.error);
+    const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
+    return text.split('Assistant:').pop().trim();
+}
 
         addToConversation(guildId, oderId, 'user', userMessage);
         addToConversation(guildId, oderId, 'assistant', response);
