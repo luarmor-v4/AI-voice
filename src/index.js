@@ -1,6 +1,7 @@
 // ============================================================
-//         DISCORD AI BOT v2.15.0 - DYNAMIC MANAGER
+//         DISCORD AI BOT v2.16.0 - DYNAMIC MANAGER
 //         Redis API Pool + Model Sync + Voice
+//         Updated: Fixed API endpoints & parameters
 // ============================================================
 
 const {
@@ -42,7 +43,7 @@ const healthServer = createServer((req, res) => {
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
-        version: '2.15.0',
+        version: '2.16.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         guilds: client?.guilds?.cache?.size || 0,
         conversations: conversations?.size || 0,
@@ -256,30 +257,24 @@ const AI_PROVIDERS = {
         name: 'Pollinations',
         models: [
             { id: 'openai', name: 'OpenAI GPT', version: 'GPT' },
-            { id: 'openai-fast', name: 'OpenAI Fast', version: 'Fast' },
             { id: 'openai-large', name: 'OpenAI Large', version: 'Large' },
-            { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3' },
             { id: 'claude', name: 'Claude', version: '3.5' },
-            { id: 'claude-fast', name: 'Claude Fast', version: 'Fast' },
-            { id: 'claude-large', name: 'Claude Large', version: 'Large' },
-            { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku' },
-            { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet' },
+            { id: 'claude-hybridspace', name: 'Claude Hybridspace', version: 'Hybrid' },
             { id: 'gemini', name: 'Gemini', version: '2.0' },
-            { id: 'gemini-fast', name: 'Gemini Fast', version: 'Fast' },
-            { id: 'gemini-large', name: 'Gemini Large', version: 'Large' },
-            { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Think' },
             { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
             { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-            { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1' },
+            { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', version: 'R1' },
             { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
             { id: 'qwen-coder', name: 'Qwen Coder', version: 'Coder' },
             { id: 'llama', name: 'Llama', version: '3.3' },
             { id: 'mistral', name: 'Mistral', version: 'Small' },
             { id: 'mistral-large', name: 'Mistral Large', version: 'Large' },
-            { id: 'grok', name: 'Grok', version: '4' },
-            { id: 'kimi', name: 'Kimi', version: 'K2' },
+            { id: 'unity', name: 'Unity', version: 'v1' },
+            { id: 'midijourney', name: 'Midijourney', version: 'v1' },
+            { id: 'rtist', name: 'Rtist', version: 'v1' },
             { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-            { id: 'evil', name: 'Evil Mode', version: 'Uncensored' }
+            { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
+            { id: 'p1', name: 'P1', version: 'v1' }
         ]
     },
     huggingface: {
@@ -440,21 +435,36 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
     const apiKey = await manager.getActiveKey('gemini', CONFIG.geminiApiKey);
     if (!apiKey) throw new Error('No Gemini API key');
 
-    const contents = history.slice(-20).map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-    }));
-    contents.push({ role: 'user', parts: [{ text: message }] });
+    const contents = [];
+    
+    history.slice(-20).forEach(m => {
+        contents.push({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }]
+        });
+    });
+    
+    contents.push({ 
+        role: 'user', 
+        parts: [{ text: message }] 
+    });
 
     const requestBody = {
-        contents,
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        contents: contents,
+        systemInstruction: {
+            parts: [{ text: systemPrompt }]
+        },
+        generationConfig: {
+            temperature: 0.7,
+            topP: 0.95,
+            topK: 40,
+            maxOutputTokens: 2048
+        },
         safetySettings: [
-            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' }
+            { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+            { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' }
         ]
     };
 
@@ -475,12 +485,18 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
     }
 
     const result = JSON.parse(data);
+    
     if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
         return {
             text: result.candidates[0].content.parts[0].text,
-            grounded: !!result.candidates[0]?.groundingMetadata || useGrounding
+            grounded: !!result.candidates[0]?.groundingMetadata
         };
     }
+    
+    if (result.candidates?.[0]?.finishReason === 'SAFETY') {
+        throw new Error('Response blocked by safety filters');
+    }
+    
     throw new Error('No response from Gemini');
 }
 
@@ -498,15 +514,24 @@ async function callGroq(model, message, history, systemPrompt) {
         hostname: 'api.groq.com',
         path: '/openai/v1/chat/completions',
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.7 }));
+        headers: { 
+            'Authorization': `Bearer ${apiKey}`, 
+            'Content-Type': 'application/json' 
+        }
+    }, JSON.stringify({ 
+        model, 
+        messages, 
+        max_completion_tokens: 2000,
+        temperature: 0.7 
+    }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
         throw new Error(result.error?.message || `HTTP ${statusCode}`);
     }
 
-    return JSON.parse(data).choices[0].message.content;
+    const result = JSON.parse(data);
+    return result.choices[0].message.content;
 }
 
 async function callOpenRouter(model, message, history, systemPrompt) {
@@ -526,29 +551,100 @@ async function callOpenRouter(model, message, history, systemPrompt) {
         headers: {
             'Authorization': `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
-            'HTTP-Referer': 'https://discord.com'
+            'HTTP-Referer': 'https://discord.com',
+            'X-Title': 'Discord AI Bot'
         }
-    }, JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.7 }));
+    }, JSON.stringify({ 
+        model, 
+        messages, 
+        max_tokens: 2000, 
+        temperature: 0.7 
+    }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
         throw new Error(result.error?.message || `HTTP ${statusCode}`);
     }
 
-    return JSON.parse(data).choices[0].message.content;
+    const result = JSON.parse(data);
+    return result.choices[0].message.content;
 }
 
 async function callPollinations(model, message, history, systemPrompt) {
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: message }
+    ];
+
+    const requestBody = JSON.stringify({
+        model: model,
+        messages: messages,
+        max_tokens: 2000,
+        temperature: 0.7,
+        stream: false
+    });
+
+    return new Promise((resolve, reject) => {
+        const req = https.request({
+            hostname: 'text.pollinations.ai',
+            path: '/openai',
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': Buffer.byteLength(requestBody)
+            },
+            timeout: 60000
+        }, (res) => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => {
+                try {
+                    if (res.statusCode === 200) {
+                        const result = JSON.parse(data);
+                        if (result.choices?.[0]?.message?.content) {
+                            resolve(result.choices[0].message.content);
+                        } else {
+                            callPollinationsSimple(model, message, history, systemPrompt)
+                                .then(resolve)
+                                .catch(reject);
+                        }
+                    } else {
+                        callPollinationsSimple(model, message, history, systemPrompt)
+                            .then(resolve)
+                            .catch(reject);
+                    }
+                } catch (e) {
+                    callPollinationsSimple(model, message, history, systemPrompt)
+                        .then(resolve)
+                        .catch(reject);
+                }
+            });
+        });
+
+        req.on('error', () => {
+            callPollinationsSimple(model, message, history, systemPrompt)
+                .then(resolve)
+                .catch(reject);
+        });
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+        req.write(requestBody);
+        req.end();
+    });
+}
+
+async function callPollinationsSimple(model, message, history, systemPrompt) {
     let prompt = systemPrompt + '\n\n';
     history.slice(-10).forEach(m => {
         prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
     });
     prompt += `User: ${message}\nAssistant:`;
 
-    const encoded = encodeURIComponent(prompt.slice(0, 6000));
+    const encoded = encodeURIComponent(prompt.slice(0, 4000));
+    const seed = Math.floor(Math.random() * 1000000);
 
     return new Promise((resolve, reject) => {
-        https.get(`https://text.pollinations.ai/${encoded}?model=${model}`, { timeout: 60000 }, res => {
+        https.get(`https://text.pollinations.ai/${encoded}?model=${model}&seed=${seed}`, { timeout: 60000 }, res => {
             let data = '';
             res.on('data', c => data += c);
             res.on('end', () => {
@@ -556,10 +652,51 @@ async function callPollinations(model, message, history, systemPrompt) {
                     let r = data.trim();
                     if (r.startsWith('Assistant:')) r = r.slice(10).trim();
                     resolve(r);
-                } else reject(new Error(`HTTP ${res.statusCode}`));
+                } else {
+                    reject(new Error(`HTTP ${res.statusCode}`));
+                }
             });
         }).on('error', reject).on('timeout', () => reject(new Error('Timeout')));
     });
+}
+
+async function callHuggingFace(model, message, history, systemPrompt) {
+    const apiKey = await manager.getActiveKey('huggingface', CONFIG.huggingfaceApiKey);
+    if (!apiKey) throw new Error('No HuggingFace API key');
+
+    let prompt = systemPrompt + '\n\n';
+    history.slice(-10).forEach(m => {
+        prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
+    });
+    prompt += `User: ${message}\nAssistant:`;
+
+    const { data, statusCode } = await httpRequest({
+        hostname: 'api-inference.huggingface.co',
+        path: `/models/${model}`,
+        method: 'POST',
+        headers: { 
+            'Authorization': `Bearer ${apiKey}`, 
+            'Content-Type': 'application/json' 
+        }
+    }, JSON.stringify({ 
+        inputs: prompt, 
+        parameters: { 
+            max_new_tokens: 1000,
+            temperature: 0.7,
+            return_full_text: false
+        } 
+    }));
+
+    if (statusCode !== 200) {
+        const result = JSON.parse(data);
+        throw new Error(result.error || `HTTP ${statusCode}`);
+    }
+
+    const result = JSON.parse(data);
+    if (result.error) throw new Error(result.error);
+    
+    const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
+    return text.split('Assistant:').pop().trim();
 }
 
 // ==================== MAIN AI CALL ====================
@@ -592,52 +729,24 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
         let response, grounded = false;
 
         switch (aiProvider) {
-    case 'gemini':
-        const geminiResult = await callGemini(aiModel, userMessage, history, finalSystemPrompt, useGeminiGrounding);
-        response = geminiResult.text;
-        grounded = geminiResult.grounded;
-        break;
-    case 'groq':
-        response = await callGroq(aiModel, userMessage, history, finalSystemPrompt);
-        break;
-    case 'openrouter':
-        response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
-        break;
-    case 'huggingface':
-        response = await callHuggingFace(aiModel, userMessage, history, finalSystemPrompt);
-        break;
-    case 'pollinations':
-    default:
-        response = await callPollinations(aiModel, userMessage, history, finalSystemPrompt);
-}
-
-async function callHuggingFace(model, message, history, systemPrompt) {
-    const apiKey = await manager.getActiveKey('huggingface', CONFIG.huggingfaceApiKey);
-    if (!apiKey) throw new Error('No HuggingFace API key');
-
-    let prompt = systemPrompt + '\n\n';
-    history.slice(-10).forEach(m => {
-        prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
-    });
-    prompt += `User: ${message}\nAssistant:`;
-
-    const { data, statusCode } = await httpRequest({
-        hostname: 'api-inference.huggingface.co',
-        path: `/models/${model}`,
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 1000 } }));
-
-    if (statusCode !== 200) {
-        const result = JSON.parse(data);
-        throw new Error(result.error || `HTTP ${statusCode}`);
-    }
-
-    const result = JSON.parse(data);
-    if (result.error) throw new Error(result.error);
-    const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
-    return text.split('Assistant:').pop().trim();
-}
+            case 'gemini':
+                const geminiResult = await callGemini(aiModel, userMessage, history, finalSystemPrompt, useGeminiGrounding);
+                response = geminiResult.text;
+                grounded = geminiResult.grounded;
+                break;
+            case 'groq':
+                response = await callGroq(aiModel, userMessage, history, finalSystemPrompt);
+                break;
+            case 'openrouter':
+                response = await callOpenRouter(aiModel, userMessage, history, finalSystemPrompt);
+                break;
+            case 'huggingface':
+                response = await callHuggingFace(aiModel, userMessage, history, finalSystemPrompt);
+                break;
+            case 'pollinations':
+            default:
+                response = await callPollinations(aiModel, userMessage, history, finalSystemPrompt);
+        }
 
         addToConversation(guildId, oderId, 'user', userMessage);
         addToConversation(guildId, oderId, 'assistant', response);
@@ -830,7 +939,7 @@ function createSettingsEmbed(guildId) {
             { name: '🔊 TTS Voice', value: s.ttsVoice.split('-').slice(-1)[0], inline: true },
             { name: '🔍 Search', value: s.geminiGrounding ? '🟢 Grounding ON' : (s.searchEnabled ? '🟢 ON' : '🔴 OFF'), inline: true }
         )
-        .setFooter({ text: 'v2.15.0 • Dynamic Manager' })
+        .setFooter({ text: 'v2.16.0 • Dynamic Manager' })
         .setTimestamp();
 }
 
@@ -879,12 +988,10 @@ function createModeButtons(guildId) {
 // ==================== INTERACTION HANDLER ====================
 
 client.on(Events.InteractionCreate, async (interaction) => {
-    // Handle Dynamic Manager (termasuk Modal Submit)
     if (interaction.customId?.startsWith('dm_')) {
         return manager.handleInteraction(interaction);
     }
 
-    // Skip jika bukan select menu atau button
     if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
 
     if (!isAdmin(interaction.user.id)) {
@@ -995,7 +1102,7 @@ client.on(Events.MessageCreate, async (msg) => {
 
             case 'status':
                 const poolStatus = await manager.getPoolStatus();
-                let statusText = '**📊 Bot Status v2.15.0**\n\n';
+                let statusText = '**📊 Bot Status v2.16.0**\n\n';
                 statusText += `**API Pool:**\n`;
                 for (const [p, s] of Object.entries(poolStatus)) {
                     if (s.keys > 0) statusText += `• ${p}: ${s.keys} keys (${s.active} active)\n`;
@@ -1006,7 +1113,7 @@ client.on(Events.MessageCreate, async (msg) => {
                 break;
 
             case 'help': case 'h':
-                await msg.reply(`**🤖 Aria AI Bot v2.15.0**
+                await msg.reply(`**🤖 Aria AI Bot v2.16.0**
 
 **Chat:**
 • \`.ai <pertanyaan>\` - Tanya AI
@@ -1111,7 +1218,7 @@ client.once(Events.ClientReady, () => {
     console.log('\n' + '='.repeat(50));
     console.log(`🤖 ${client.user.tag} online!`);
     console.log(`📡 ${client.guilds.cache.size} servers`);
-    console.log(`📦 v2.15.0 - Dynamic API Manager`);
+    console.log(`📦 v2.16.0 - Dynamic API Manager`);
     console.log('='.repeat(50));
     console.log(`🔗 Redis: ${manager.connected ? '✅' : '❌ (using ENV fallback)'}`);
     console.log(`🔍 Serper: ${CONFIG.serperApiKey ? '✅' : '❌'}`);
@@ -1119,6 +1226,7 @@ client.once(Events.ClientReady, () => {
     console.log(`🧠 Gemini: ${CONFIG.geminiApiKey ? '✅' : '❌'}`);
     console.log(`🧠 Groq: ${CONFIG.groqApiKey ? '✅' : '❌'}`);
     console.log(`🧠 OpenRouter: ${CONFIG.openrouterApiKey ? '✅' : '❌'}`);
+    console.log(`🧠 HuggingFace: ${CONFIG.huggingfaceApiKey ? '✅' : '❌'}`);
     console.log('='.repeat(50) + '\n');
 
     client.user.setActivity(`.ai | .help`, { type: ActivityType.Listening });
