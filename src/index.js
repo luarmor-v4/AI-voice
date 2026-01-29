@@ -809,15 +809,13 @@ function createModeButtons(guildId) {
 
 // ==================== INTERACTION HANDLER ====================
 
-// ==================== INTERACTION HANDLER ====================
-
 client.on(Events.InteractionCreate, async (interaction) => {
-    // Handle Dynamic Manager (termasuk Modal Submit)
+    // 1) Dynamic Manager (embed UI, modal, dll)
     if (interaction.customId?.startsWith('dm_')) {
         return manager.handleInteraction(interaction);
     }
-    
-    // Skip jika bukan select menu atau button
+
+    // 2) Settings bawaan bot (select menu & button)
     if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
 
     if (!isAdmin(interaction.user.id)) {
@@ -831,25 +829,44 @@ client.on(Events.InteractionCreate, async (interaction) => {
             updateSettings(guildId, 'aiProvider', interaction.values[0]);
             const p = AI_PROVIDERS[interaction.values[0]];
             if (p?.models[0]) updateSettings(guildId, 'aiModel', p.models[0].id);
+
         } else if (interaction.customId === 'sel_model') {
             updateSettings(guildId, 'aiModel', interaction.values[0]);
+
         } else if (interaction.customId === 'sel_voice') {
             updateSettings(guildId, 'ttsVoice', interaction.values[0]);
+
         } else if (interaction.customId === 'search_toggle') {
             const s = getSettings(guildId);
             updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
+
         } else if (interaction.customId === 'grounding_toggle') {
             const s = getSettings(guildId);
             updateSettings(guildId, 'geminiGrounding', !s.geminiGrounding);
         }
 
-        const comps = [createProviderMenu(guildId), createModelMenu(guildId), createVoiceMenu(guildId), createModeButtons(guildId)].filter(Boolean);
-        await interaction.update({ embeds: [createSettingsEmbed(guildId)], components: comps });
+        const comps = [
+            createProviderMenu(guildId),
+            createModelMenu(guildId),
+            createVoiceMenu(guildId),
+            createModeButtons(guildId)
+        ].filter(Boolean);
+
+        await interaction.update({
+            embeds: [createSettingsEmbed(guildId)],
+            components: comps
+        });
 
     } catch (e) {
         interaction.reply({ content: `❌ ${e.message}`, ephemeral: true }).catch(() => {});
     }
 });
+    if (!interaction.isStringSelectMenu() && !interaction.isButton()) return;
+
+    // Handle Dynamic Manager
+    if (interaction.customId.startsWith('dm_')) {
+        return manager.handleInteraction(interaction);
+    }
 
     if (!isAdmin(interaction.user.id)) {
         return interaction.reply({ content: '❌ Admin only', ephemeral: true });
