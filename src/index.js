@@ -190,7 +190,7 @@ const SEARCH_TRIGGERS = {
         'rute', 'route', 'jarak', 'distance', 'cara ke'
     ],
 
-    // Kesehatan (Disclaimer needed)
+    // Kesehatan
     health: [
         'gejala', 'symptom', 'obat', 'medicine', 'penyakit', 'disease',
         'rumah sakit', 'hospital', 'dokter', 'doctor',
@@ -228,7 +228,19 @@ const SEARCH_TRIGGERS = {
         'kebijakan', 'policy', 'keputusan', 'decision',
         'syarat', 'requirement', 'persyaratan', 'prosedur',
         'pajak', 'tax', 'bpjs', 'ktp', 'sim', 'paspor'
-];
+    ]
+};
+
+// ==================== SEARCH FUNCTION ====================
+
+function shouldSearch(message) {
+    const lower = message.toLowerCase();
+    
+    // Flatten all triggers into single array
+    const allTriggers = Object.values(SEARCH_TRIGGERS).flat();
+    
+    return allTriggers.some(trigger => lower.includes(trigger));
+}
 
 function shouldSearch(message) {
     const lower = message.toLowerCase();
