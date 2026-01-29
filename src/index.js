@@ -1,7 +1,6 @@
 // ============================================================
-//         DISCORD AI BOT v2.17.0 - DYNAMIC MANAGER
-//         Redis API Pool + Model Sync + Voice
-//         Updated: Pollinations Free + API Providers
+//         DISCORD AI BOT v2.18.0 - FINAL INTEGRATED
+//         DynamicManager + Voice Speech Only + All Providers
 // ============================================================
 
 const {
@@ -43,7 +42,7 @@ const healthServer = createServer((req, res) => {
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
-        version: '2.17.0',
+        version: '2.18.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         guilds: client?.guilds?.cache?.size || 0,
         conversations: conversations?.size || 0,
@@ -62,6 +61,7 @@ const CONFIG = {
     prefix: '.',
     adminIds: (process.env.ADMIN_IDS || '').split(',').filter(Boolean),
     tempPath: './temp',
+    // API Keys (ENV Fallback)
     tavilyApiKey: process.env.TAVILY_API_KEY,
     serperApiKey: process.env.SERPER_API_KEY,
     geminiApiKey: process.env.GEMINI_API_KEY,
@@ -69,7 +69,7 @@ const CONFIG = {
     openrouterApiKey: process.env.OPENROUTER_API_KEY,
     huggingfaceApiKey: process.env.HUGGINGFACE_API_KEY,
     pollinationsApiKey: process.env.POLLINATIONS_API_KEY,
-    elevenLabsApiKey: process.env.ELEVENLABS_API_KEY,
+    // Settings
     maxConversationMessages: 100,
     maxConversationAge: 7200000,
     rateLimitWindow: 60000,
@@ -98,13 +98,136 @@ function checkRateLimit(userId) {
     return { allowed: true, remaining: CONFIG.rateLimitMax - userLimit.count };
 }
 
-// ==================== SEARCH SYSTEM ====================
+// ==================== SEARCH TRIGGERS ====================
 
-const SEARCH_TRIGGERS = [
-    'berita', 'news', 'kabar', 'terbaru', 'hari ini', 'sekarang',
-    'latest', 'current', 'today', 'recent', 'update',
-    'siapa presiden', 'harga', 'kurs', 'cuaca', 'jadwal',
-    'trending', 'viral', '2024', '2025', '2026'
+const SEARCH_TRIGGERS = {
+    // Berita & Informasi Terkini
+    news: [
+        'berita', 'news', 'kabar', 'terbaru', 'hari ini', 'sekarang',
+        'latest', 'current', 'today', 'recent', 'update', 'breaking',
+        'terkini', 'baru saja', 'barusan', 'kemarin', 'minggu ini',
+        'bulan ini', 'headline', 'info terbaru', 'perkembangan'
+    ],
+
+    // Waktu & Tanggal
+    temporal: [
+        '2024', '2025', '2026', '2027', '2028', '2029', '2030',
+        'tahun ini', 'tahun lalu', 'tahun depan',
+        'januari', 'februari', 'maret', 'april', 'mei', 'juni',
+        'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
+        'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu',
+        'kapan', 'when', 'jadwal', 'schedule', 'tanggal berapa'
+    ],
+
+    // Harga & Keuangan
+    finance: [
+        'harga', 'price', 'kurs', 'nilai tukar', 'exchange rate',
+        'saham', 'stock', 'crypto', 'bitcoin', 'ethereum',
+        'dollar', 'rupiah', 'euro', 'yen',
+        'investasi', 'trading', 'pasar', 'market',
+        'biaya', 'tarif', 'ongkir', 'ongkos kirim',
+        'gaji', 'salary', 'harga emas', 'gold price', 'ihsg'
+    ],
+
+    // Cuaca & Alam
+    weather: [
+        'cuaca', 'weather', 'hujan', 'rain', 'panas', 'cerah',
+        'badai', 'storm', 'gempa', 'earthquake', 'banjir', 'flood',
+        'suhu', 'temperature', 'prakiraan', 'forecast',
+        'tsunami', 'longsor', 'erupsi', 'gunung meletus'
+    ],
+
+    // Orang & Tokoh
+    people: [
+        'siapa', 'who is', 'siapa presiden', 'siapa menteri',
+        'siapa gubernur', 'siapa walikota', 'siapa bupati',
+        'siapa ceo', 'siapa pemilik', 'siapa pendiri',
+        'profil', 'profile', 'biodata', 'biography',
+        'umur', 'age', 'lahir', 'born', 'meninggal', 'died'
+    ],
+
+    // Trending & Viral
+    trending: [
+        'trending', 'viral', 'populer', 'popular', 'hits',
+        'fyp', 'tiktok', 'instagram', 'twitter', 'x.com',
+        'meme', 'gosip', 'rumor', 'kontroversi', 'skandal',
+        'heboh', 'ramai', 'diperbincangkan', 'hot topic'
+    ],
+
+    // Olahraga
+    sports: [
+        'skor', 'score', 'hasil pertandingan', 'match result',
+        'klasemen', 'standing', 'liga', 'league',
+        'piala dunia', 'world cup', 'euro', 'asian games',
+        'olimpiade', 'olympics', 'final', 'semifinal',
+        'bola', 'football', 'soccer', 'basket', 'badminton',
+        'f1', 'motogp', 'tinju', 'boxing', 'ufc', 'mma'
+    ],
+
+    // Teknologi & Produk
+    tech: [
+        'rilis', 'release', 'launching', 'peluncuran',
+        'iphone', 'samsung', 'android', 'ios', 'windows',
+        'spesifikasi', 'spec', 'fitur terbaru', 'new feature',
+        'update software', 'patch', 'versi terbaru', 'latest version',
+        'review', 'ulasan', 'benchmark', 'perbandingan'
+    ],
+
+    // Hiburan
+    entertainment: [
+        'film terbaru', 'movie', 'drama', 'series', 'anime',
+        'lagu terbaru', 'album', 'konser', 'concert', 'tour',
+        'netflix', 'disney', 'youtube', 'spotify',
+        'box office', 'rating', 'trailer', 'teaser',
+        'artis', 'celebrity', 'idol', 'kpop', 'jpop'
+    ],
+
+    // Lokasi & Tempat
+    location: [
+        'dimana', 'where', 'lokasi', 'location', 'alamat', 'address',
+        'buka jam', 'jam operasional', 'opening hours',
+        'tutup jam', 'closing time', 'libur', 'holiday',
+        'rute', 'route', 'jarak', 'distance', 'cara ke'
+    ],
+
+    // Kesehatan (Disclaimer needed)
+    health: [
+        'gejala', 'symptom', 'obat', 'medicine', 'penyakit', 'disease',
+        'rumah sakit', 'hospital', 'dokter', 'doctor',
+        'vaksin', 'vaccine', 'covid', 'virus', 'pandemi',
+        'efek samping', 'side effect'
+    ],
+
+    // Verifikasi Fakta
+    factCheck: [
+        'benarkah', 'is it true', 'apakah benar', 'fakta atau hoax',
+        'hoax', 'hoaks', 'fake news', 'cek fakta', 'fact check',
+        'klarifikasi', 'clarification', 'bukti', 'evidence',
+        'sumber', 'source', 'referensi', 'reference'
+    ],
+
+    // Event & Acara
+    events: [
+        'event', 'acara', 'festival', 'pameran', 'exhibition',
+        'seminar', 'webinar', 'workshop', 'konferensi', 'conference',
+        'promo', 'diskon', 'sale', 'flash sale', 'harbolnas',
+        'tiket', 'ticket', 'registrasi', 'daftar'
+    ],
+
+    // Pendidikan
+    education: [
+        'passing grade', 'nilai minimum', 'akreditasi',
+        'beasiswa', 'scholarship', 'pendaftaran', 'registration',
+        'snbp', 'snbt', 'utbk', 'sbmptn', 'ptn', 'pts',
+        'kurikulum', 'curriculum', 'ujian', 'exam'
+    ],
+
+    // Pemerintahan & Regulasi
+    government: [
+        'peraturan', 'regulation', 'undang-undang', 'law',
+        'kebijakan', 'policy', 'keputusan', 'decision',
+        'syarat', 'requirement', 'persyaratan', 'prosedur',
+        'pajak', 'tax', 'bpjs', 'ktp', 'sim', 'paspor'
 ];
 
 function shouldSearch(message) {
@@ -200,11 +323,154 @@ function formatSearchContext(data) {
 
 // ==================== SYSTEM PROMPT ====================
 
-const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI yang cerdas dan friendly.
-- Jawab dalam Bahasa Indonesia natural
-- Untuk voice: jawab ringkas 2-4 kalimat
-- Jangan mengarang fakta
-- Boleh pakai emoji secukupnya`;
+const SYSTEM_PROMPT = `Kamu adalah Toing, asisten AI premium yang elegan, cerdas, dan profesional.
+
+## IDENTITAS
+- Nama: Toing
+- Kepribadian: Hangat, cerdas, humoris namun tetap profesional
+- Gaya bicara: Santai tapi berkelas, seperti teman pintar yang menyenangkan
+
+## PRINSIP UTAMA
+
+### 1. KEJUJURAN ABSOLUT
+- JANGAN PERNAH mengarang fakta atau informasi
+- Jika tidak tahu, katakan dengan jujur: "Saya tidak memiliki informasi akurat tentang ini"
+- Bedakan dengan jelas antara FAKTA, OPINI, dan SPEKULASI
+- Sebutkan jika informasi mungkin sudah tidak update
+
+### 2. WAWASAN LUAS
+- Berikan jawaban yang mendalam dan komprehensif
+- Sertakan konteks yang relevan untuk memperkaya pemahaman
+- Hubungkan topik dengan pengetahuan terkait jika membantu
+- Gunakan analogi sederhana untuk menjelaskan konsep kompleks
+
+### 3. KEJELASAN & STRUKTUR
+- Gunakan format yang rapi (bullet points, numbering) untuk informasi kompleks
+- Prioritaskan informasi paling penting di awal
+- Hindari jargon kecuali diperlukan, jelaskan jika menggunakannya
+- Sesuaikan panjang jawaban dengan kompleksitas pertanyaan
+
+### 4. PROFESIONAL TAPI MENYENANGKAN
+- Gunakan bahasa Indonesia yang baik dan natural
+- Boleh sisipkan humor ringan yang relevan
+- Gunakan emoji secukupnya untuk menambah ekspresi 😊
+- Tetap sopan dan respectful dalam semua situasi
+
+## PANDUAN RESPONS
+
+### Untuk Pertanyaan Faktual:
+- Berikan jawaban akurat dan terverifikasi
+- Sertakan sumber atau dasar informasi jika relevan
+- Akui keterbatasan jika topik di luar jangkauan pengetahuan
+
+### Untuk Permintaan Bantuan:
+- Pahami kebutuhan sebenarnya di balik pertanyaan
+- Berikan solusi praktis dan actionable
+- Tawarkan alternatif jika memungkinkan
+
+### Untuk Diskusi & Opini:
+- Sajikan berbagai perspektif secara seimbang
+- Tandai dengan jelas mana yang fakta dan mana opini
+- Hormati perbedaan pandangan
+
+### Untuk Voice Response:
+- Jawab ringkas dalam 2-4 kalimat
+- Langsung ke poin utama
+- Gunakan bahasa yang mudah dipahami saat didengar
+
+## YANG HARUS DIHINDARI
+❌ Mengarang fakta atau statistik
+❌ Berpura-pura tahu hal yang tidak diketahui
+❌ Memberikan informasi medis/hukum/keuangan spesifik tanpa disclaimer
+❌ Respons yang terlalu panjang untuk pertanyaan sederhana
+❌ Bahasa yang kaku atau seperti robot
+
+## CONTOH GAYA RESPONS
+
+Pertanyaan sederhana:
+"Apa itu AI?"
+→ "AI atau Artificial Intelligence adalah teknologi yang memungkinkan mesin untuk 'berpikir' dan belajar seperti manusia. Bayangkan seperti otak digital yang bisa mengenali pola, mengambil keputusan, dan bahkan ngobrol seperti kita sekarang! 🤖"
+
+Pertanyaan kompleks:
+→ Gunakan struktur yang jelas dengan poin-poin
+→ Berikan penjelasan bertahap
+→ Akhiri dengan ringkasan atau kesimpulan
+
+Tidak tahu jawabannya:
+→ "Hmm, untuk pertanyaan spesifik ini saya tidak punya informasi yang cukup akurat. Daripada menebak-nebak, saya sarankan untuk mengecek sumber resmi atau terpercaya ya! 😊"
+
+Ingat: Lebih baik jujur tidak tahu daripada memberikan informasi yang salah.`;
+
+// ==================== POLLINATIONS MODELS (SHARED) ====================
+
+const POLLINATIONS_MODELS = [
+    // OpenAI Models
+    { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5-nano' },
+    { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5-fast' },
+    { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5-large' },
+    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3-mini' },
+    { id: 'openai-audio', name: 'OpenAI Audio', version: 'GPT-4o-audio' },
+    // Claude Models
+    { id: 'claude', name: 'Claude', version: 'Claude-3.5' },
+    { id: 'claude-fast', name: 'Claude Fast', version: 'Claude-fast' },
+    { id: 'claude-large', name: 'Claude Large', version: 'Claude-large' },
+    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4.5' },
+    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4.5' },
+    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.5' },
+    // Gemini Models
+    { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' },
+    { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-fast' },
+    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-large' },
+    { id: 'gemini-search', name: 'Gemini Search', version: 'Gemini-search' },
+    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5' },
+    { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Thinking' },
+    // DeepSeek Models
+    { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
+    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3-latest' },
+    { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
+    { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1-Reasoner' },
+    // Qwen Models
+    { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
+    { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
+    // Llama Models
+    { id: 'llama', name: 'Llama', version: 'Llama-3.3' },
+    { id: 'llamalight', name: 'Llama Light', version: 'Llama-70B' },
+    // Mistral Models
+    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' },
+    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2' },
+    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large' },
+    // Perplexity Models
+    { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Sonar' },
+    { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Sonar-Pro' },
+    // Chinese AI Models
+    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2.5' },
+    { id: 'kimi-large', name: 'Kimi Large', version: 'Kimi-large' },
+    { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Kimi-reasoning' },
+    { id: 'glm', name: 'GLM', version: 'GLM-4.7' },
+    { id: 'minimax', name: 'MiniMax', version: 'M2.1' },
+    // Grok Models
+    { id: 'grok', name: 'Grok', version: 'Grok-4' },
+    { id: 'grok-fast', name: 'Grok Fast', version: 'Grok-fast' },
+    // Amazon Nova
+    { id: 'nova-fast', name: 'Nova Fast', version: 'Amazon-Nova' },
+    // Microsoft Phi
+    { id: 'phi', name: 'Phi', version: 'Phi-4' },
+    // Search/Tool Models
+    { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
+    // Creative/Art Models
+    { id: 'midijourney', name: 'Midijourney', version: 'v1' },
+    { id: 'unity', name: 'Unity', version: 'v1' },
+    { id: 'rtist', name: 'Rtist', version: 'v1' },
+    // Special/Character Models
+    { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
+    { id: 'p1', name: 'P1', version: 'v1' },
+    { id: 'hormoz', name: 'Hormoz', version: 'v1' },
+    { id: 'sur', name: 'Sur', version: 'v1' },
+    { id: 'bidara', name: 'Bidara', version: 'v1' },
+    // Education/Utility Models
+    { id: 'chickytutor', name: 'ChickyTutor', version: 'Education' },
+    { id: 'nomnom', name: 'NomNom', version: 'Food' }
+];
 
 // ==================== AI PROVIDERS ====================
 
@@ -212,30 +478,36 @@ const AI_PROVIDERS = {
     gemini: {
         name: 'Google Gemini',
         models: [
-            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5' },
-            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5' },
-            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5' },
-            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0' },
-            { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0' },
-            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5' },
-            { id: 'gemini-1.5-flash-8b', name: 'Gemini 1.5 Flash 8B', version: '1.5' },
-            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5' }
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
+            { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
+            { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite' },
+            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5-pro' },
+            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5-flash' },
+            { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview', version: '2.5-preview' },
+            { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro Preview', version: '2.5-pro-preview' }
         ]
     },
+
     groq: {
         name: 'Groq',
         models: [
-            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile', version: '3.3' },
-            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B Instant', version: '3.1' },
-            { id: 'llama-3.1-70b-versatile', name: 'Llama 3.1 70B Versatile', version: '3.1' },
-            { id: 'llama-3.2-1b-preview', name: 'Llama 3.2 1B Preview', version: '3.2' },
-            { id: 'llama-3.2-3b-preview', name: 'Llama 3.2 3B Preview', version: '3.2' },
+            { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3' },
+            { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1' },
+            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
+            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
             { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
             { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
-            { id: 'whisper-large-v3', name: 'Whisper Large V3', version: 'v3' },
-            { id: 'whisper-large-v3-turbo', name: 'Whisper V3 Turbo', version: 'v3' }
+            { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E' },
+            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E' },
+            { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: 'K2' },
+            { id: 'qwen/qwen-3-32b', name: 'Qwen 3 32B', version: '32B' },
+            { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool', version: '70B-tool' },
+            { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool', version: '8B-tool' }
         ]
     },
+
     openrouter: {
         name: 'OpenRouter',
         models: [
@@ -245,13 +517,13 @@ const AI_PROVIDERS = {
             { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B' },
             { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B' },
             { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T' },
-            { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
-            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5' },
+            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
             { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
-            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n' },
+            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
+            { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
             { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
             { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
-            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0' },
+            { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash' },
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
             { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
             { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
@@ -260,107 +532,31 @@ const AI_PROVIDERS = {
             { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' }
         ]
     },
+
     pollinations_free: {
         name: 'Pollinations (Free)',
         requiresKey: false,
-        models: [
-            // Basic models only - no API key needed
-            { id: 'openai', name: 'OpenAI GPT', version: 'GPT' },
-            { id: 'claude', name: 'Claude', version: '3.5' },
-            { id: 'gemini', name: 'Gemini', version: '2.0' },
-            { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-            { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-            { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
-            { id: 'llama', name: 'Llama', version: '3.3' },
-            { id: 'mistral', name: 'Mistral', version: 'Small' },
-            { id: 'unity', name: 'Unity', version: 'v1' },
-            { id: 'midijourney', name: 'Midijourney', version: 'v1' },
-            { id: 'rtist', name: 'Rtist', version: 'v1' },
-            { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-            { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
-            { id: 'p1', name: 'P1', version: 'v1' }
-        ]
+        models: POLLINATIONS_MODELS
     },
+
     pollinations_api: {
         name: 'Pollinations (API)',
         requiresKey: true,
-        models: [
-            // OpenAI Models
-            { id: 'openai', name: 'OpenAI GPT', version: 'GPT' },
-            { id: 'openai-fast', name: 'OpenAI Fast', version: 'Fast' },
-            { id: 'openai-large', name: 'OpenAI Large', version: 'Large' },
-            { id: 'openai-reasoning', name: 'OpenAI Reasoning (o3-mini)', version: 'o3' },
-            { id: 'openai-audio', name: 'OpenAI Audio (GPT-4o-audio)', version: '4o' },
-            // Claude Models
-            { id: 'claude', name: 'Claude', version: '3.5' },
-            { id: 'claude-fast', name: 'Claude Fast', version: 'Fast' },
-            { id: 'claude-large', name: 'Claude Large', version: 'Large' },
-            { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku' },
-            { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet' },
-            { id: 'claude-opus', name: 'Claude Opus', version: 'Opus' },
-            { id: 'claude-hybridspace', name: 'Claude Hybridspace', version: 'Hybrid' },
-            // Gemini Models
-            { id: 'gemini', name: 'Gemini', version: '2.0' },
-            { id: 'gemini-fast', name: 'Gemini Fast', version: 'Fast' },
-            { id: 'gemini-large', name: 'Gemini Large', version: 'Large' },
-            { id: 'gemini-search', name: 'Gemini Search', version: 'Search' },
-            { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Think' },
-            // DeepSeek Models
-            { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-            { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3' },
-            { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-            { id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', version: 'R1' },
-            // Qwen Models
-            { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
-            { id: 'qwen-coder', name: 'Qwen Coder', version: 'Coder' },
-            // Llama Models
-            { id: 'llama', name: 'Llama', version: '3.3' },
-            { id: 'llamalight', name: 'Llama Light (70B)', version: '70B' },
-            { id: 'llama-scaleway', name: 'Llama Scaleway', version: 'SW' },
-            // Mistral Models
-            { id: 'mistral', name: 'Mistral', version: 'Small' },
-            { id: 'mistral-small', name: 'Mistral Small', version: 'Small' },
-            { id: 'mistral-large', name: 'Mistral Large', version: 'Large' },
-            // Grok Models
-            { id: 'grok', name: 'Grok', version: '1.0' },
-            { id: 'grok-fast', name: 'Grok Fast', version: 'Fast' },
-            // Kimi Models
-            { id: 'kimi', name: 'Kimi', version: '1.0' },
-            { id: 'kimi-large', name: 'Kimi Large', version: 'Large' },
-            { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Think' },
-            // Other Models
-            { id: 'glm', name: 'GLM', version: '4.0' },
-            { id: 'minimax', name: 'MiniMax', version: '1.0' },
-            { id: 'nova-fast', name: 'Amazon Nova Fast', version: 'Fast' },
-            { id: 'phi', name: 'Microsoft Phi', version: 'Phi' },
-            // Search/Tool Models
-            { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-            { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Fast' },
-            { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Think' },
-            // Creative/Art Models
-            { id: 'midijourney', name: 'Midijourney', version: 'v1' },
-            { id: 'unity', name: 'Unity', version: 'v1' },
-            { id: 'rtist', name: 'Rtist', version: 'v1' },
-            // Special Models
-            { id: 'evil', name: 'Evil Mode (Uncensored)', version: 'Evil' },
-            { id: 'p1', name: 'P1', version: 'v1' },
-            { id: 'hormoz', name: 'Hormoz', version: 'v1' },
-            { id: 'sur', name: 'Sur', version: 'v1' },
-            { id: 'bidara', name: 'Bidara', version: 'v1' },
-            // Education/Utility
-            { id: 'chickytutor', name: 'ChickyTutor (Education)', version: 'Edu' },
-            { id: 'nomnom', name: 'NomNom (Food)', version: 'Food' }
-        ]
+        models: POLLINATIONS_MODELS
     },
+
     huggingface: {
         name: 'HuggingFace',
         models: [
-            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '8B' },
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '70B' },
+            { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '3.1-8B' },
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '3.3-70B' },
+            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B-beta' },
+            { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B', version: '7B-v0.1' },
             { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '72B' },
-            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '27B' },
-            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B' }
+            { id: 'google/flan-t5-large', name: 'Flan T5 Large', version: 'T5-large' },
+            { id: 'EleutherAI/gpt-j-6B', name: 'GPT-J 6B', version: '6B' },
+            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '2.5-72B' },
+            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '2-27B' }
         ]
     }
 };
@@ -376,8 +572,8 @@ const TTS_VOICES = [
 // ==================== DEFAULT SETTINGS ====================
 
 const DEFAULT_SETTINGS = {
-    aiProvider: 'gemini',
-    aiModel: 'gemini-2.0-flash',
+    aiProvider: 'groq',
+    aiModel: 'llama-3.3-70b-versatile',
     ttsVoice: 'id-ID-GadisNeural',
     searchEnabled: true,
     searchProvider: 'auto',
@@ -417,8 +613,8 @@ function isAdmin(userId) {
 
 // ==================== CONVERSATION MEMORY ====================
 
-function getConversation(guildId, oderId) {
-    const key = `${guildId}-${oderId}`;
+function getConversation(guildId, userId) {
+    const key = `${guildId}-${userId}`;
     if (!conversations.has(key)) {
         conversations.set(key, { messages: [], createdAt: Date.now(), lastActivity: Date.now() });
     }
@@ -427,16 +623,16 @@ function getConversation(guildId, oderId) {
     return conv;
 }
 
-function addToConversation(guildId, oderId, role, content) {
-    const conv = getConversation(guildId, oderId);
+function addToConversation(guildId, userId, role, content) {
+    const conv = getConversation(guildId, userId);
     conv.messages.push({ role, content, timestamp: Date.now() });
     if (conv.messages.length > CONFIG.maxConversationMessages) {
         conv.messages = conv.messages.slice(-CONFIG.maxConversationMessages);
     }
 }
 
-function clearConversation(guildId, oderId) {
-    conversations.delete(`${guildId}-${oderId}`);
+function clearConversation(guildId, userId) {
+    conversations.delete(`${guildId}-${userId}`);
 }
 
 setInterval(() => {
@@ -513,30 +709,18 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
     if (!apiKey) throw new Error('No Gemini API key');
 
     const contents = [];
-    
     history.slice(-20).forEach(m => {
         contents.push({
             role: m.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: m.content }]
         });
     });
-    
-    contents.push({ 
-        role: 'user', 
-        parts: [{ text: message }] 
-    });
+    contents.push({ role: 'user', parts: [{ text: message }] });
 
     const requestBody = {
         contents: contents,
-        systemInstruction: {
-            parts: [{ text: systemPrompt }]
-        },
-        generationConfig: {
-            temperature: 0.7,
-            topP: 0.95,
-            topK: 40,
-            maxOutputTokens: 2048
-        },
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -562,18 +746,12 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
     }
 
     const result = JSON.parse(data);
-    
     if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
         return {
             text: result.candidates[0].content.parts[0].text,
             grounded: !!result.candidates[0]?.groundingMetadata
         };
     }
-    
-    if (result.candidates?.[0]?.finishReason === 'SAFETY') {
-        throw new Error('Response blocked by safety filters');
-    }
-    
     throw new Error('No response from Gemini');
 }
 
@@ -591,16 +769,8 @@ async function callGroq(model, message, history, systemPrompt) {
         hostname: 'api.groq.com',
         path: '/openai/v1/chat/completions',
         method: 'POST',
-        headers: { 
-            'Authorization': `Bearer ${apiKey}`, 
-            'Content-Type': 'application/json' 
-        }
-    }, JSON.stringify({ 
-        model, 
-        messages, 
-        max_completion_tokens: 2000,
-        temperature: 0.7 
-    }));
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    }, JSON.stringify({ model, messages, max_completion_tokens: 2000, temperature: 0.7 }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
@@ -631,12 +801,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
             'HTTP-Referer': 'https://discord.com',
             'X-Title': 'Discord AI Bot'
         }
-    }, JSON.stringify({ 
-        model, 
-        messages, 
-        max_tokens: 2000, 
-        temperature: 0.7 
-    }));
+    }, JSON.stringify({ model, messages, max_tokens: 2000, temperature: 0.7 }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
@@ -647,148 +812,7 @@ async function callOpenRouter(model, message, history, systemPrompt) {
     return result.choices[0].message.content;
 }
 
-// ==================== POLLINATIONS FUNCTIONS ====================
-
 async function callPollinationsFree(model, message, history, systemPrompt) {
-    // No API key needed - completely free
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message }
-    ];
-
-    const requestBody = JSON.stringify({
-        model: model,
-        messages: messages,
-        max_tokens: 2000,
-        temperature: 0.7,
-        stream: false
-    });
-
-    return new Promise((resolve, reject) => {
-        const req = https.request({
-            hostname: 'text.pollinations.ai',
-            path: '/openai',
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(requestBody)
-            },
-            timeout: 60000
-        }, (res) => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => {
-                try {
-                    if (res.statusCode === 200) {
-                        const result = JSON.parse(data);
-                        if (result.choices?.[0]?.message?.content) {
-                            resolve(result.choices[0].message.content);
-                        } else {
-                            // Fallback to simple endpoint
-                            callPollinationsSimple(model, message, history, systemPrompt)
-                                .then(resolve)
-                                .catch(reject);
-                        }
-                    } else {
-                        callPollinationsSimple(model, message, history, systemPrompt)
-                            .then(resolve)
-                            .catch(reject);
-                    }
-                } catch (e) {
-                    callPollinationsSimple(model, message, history, systemPrompt)
-                        .then(resolve)
-                        .catch(reject);
-                }
-            });
-        });
-
-        req.on('error', () => {
-            callPollinationsSimple(model, message, history, systemPrompt)
-                .then(resolve)
-                .catch(reject);
-        });
-        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-        req.write(requestBody);
-        req.end();
-    });
-}
-
-async function callPollinationsApi(model, message, history, systemPrompt) {
-    // With API key for priority access
-    const apiKey = await manager.getActiveKey('pollinations_api', CONFIG.pollinationsApiKey);
-    
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
-        { role: 'user', content: message }
-    ];
-
-    const requestBody = JSON.stringify({
-        model: model,
-        messages: messages,
-        max_tokens: 2000,
-        temperature: 0.7,
-        stream: false
-    });
-
-    const headers = {
-        'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(requestBody)
-    };
-
-    // Add API key if available
-    if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-    }
-
-    return new Promise((resolve, reject) => {
-        const req = https.request({
-            hostname: 'text.pollinations.ai',
-            path: '/openai',
-            method: 'POST',
-            headers: headers,
-            timeout: 60000
-        }, (res) => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => {
-                try {
-                    if (res.statusCode === 200) {
-                        const result = JSON.parse(data);
-                        if (result.choices?.[0]?.message?.content) {
-                            resolve(result.choices[0].message.content);
-                        } else {
-                            // Fallback to simple endpoint
-                            callPollinationsSimple(model, message, history, systemPrompt)
-                                .then(resolve)
-                                .catch(reject);
-                        }
-                    } else {
-                        callPollinationsSimple(model, message, history, systemPrompt)
-                            .then(resolve)
-                            .catch(reject);
-                    }
-                } catch (e) {
-                    callPollinationsSimple(model, message, history, systemPrompt)
-                        .then(resolve)
-                        .catch(reject);
-                }
-            });
-        });
-
-        req.on('error', () => {
-            callPollinationsSimple(model, message, history, systemPrompt)
-                .then(resolve)
-                .catch(reject);
-        });
-        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
-        req.write(requestBody);
-        req.end();
-    });
-}
-
-async function callPollinationsSimple(model, message, history, systemPrompt) {
     let prompt = systemPrompt + '\n\n';
     history.slice(-10).forEach(m => {
         prompt += m.role === 'user' ? `User: ${m.content}\n` : `Assistant: ${m.content}\n`;
@@ -815,6 +839,49 @@ async function callPollinationsSimple(model, message, history, systemPrompt) {
     });
 }
 
+async function callPollinationsAPI(model, message, history, systemPrompt) {
+    const apiKey = await manager.getActiveKey('pollinations_api', CONFIG.pollinationsApiKey);
+    if (!apiKey) throw new Error('No Pollinations API key');
+
+    const messages = [
+        { role: 'system', content: systemPrompt },
+        ...history.slice(-10).map(m => ({ role: m.role, content: m.content })),
+        { role: 'user', content: message }
+    ];
+
+    const requestBody = {
+        model: model,
+        messages: messages,
+        max_tokens: 2000,
+        temperature: 0.7
+    };
+
+    const { data, statusCode } = await httpRequest({
+        hostname: 'gen.pollinations.ai',
+        path: '/v1/chat/completions',
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+        }
+    }, JSON.stringify(requestBody));
+
+    if (statusCode !== 200) {
+        try {
+            const result = JSON.parse(data);
+            throw new Error(result.error?.message || `HTTP ${statusCode}`);
+        } catch {
+            throw new Error(`HTTP ${statusCode}`);
+        }
+    }
+
+    const result = JSON.parse(data);
+    if (result.choices?.[0]?.message?.content) {
+        return result.choices[0].message.content;
+    }
+    throw new Error('No response from Pollinations API');
+}
+
 async function callHuggingFace(model, message, history, systemPrompt) {
     const apiKey = await manager.getActiveKey('huggingface', CONFIG.huggingfaceApiKey);
     if (!apiKey) throw new Error('No HuggingFace API key');
@@ -829,18 +896,8 @@ async function callHuggingFace(model, message, history, systemPrompt) {
         hostname: 'api-inference.huggingface.co',
         path: `/models/${model}`,
         method: 'POST',
-        headers: { 
-            'Authorization': `Bearer ${apiKey}`, 
-            'Content-Type': 'application/json' 
-        }
-    }, JSON.stringify({ 
-        inputs: prompt, 
-        parameters: { 
-            max_new_tokens: 1000,
-            temperature: 0.7,
-            return_full_text: false
-        } 
-    }));
+        headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
+    }, JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 1000, temperature: 0.7, return_full_text: false } }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
@@ -849,19 +906,18 @@ async function callHuggingFace(model, message, history, systemPrompt) {
 
     const result = JSON.parse(data);
     if (result.error) throw new Error(result.error);
-    
     const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
     return text.split('Assistant:').pop().trim();
 }
 
 // ==================== MAIN AI CALL ====================
 
-async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
+async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
     const s = getSettings(guildId);
     const { aiProvider, aiModel, searchEnabled, searchProvider, geminiGrounding } = s;
     const start = Date.now();
 
-    const conv = getConversation(guildId, oderId);
+    const conv = getConversation(guildId, userId);
     const history = conv.messages;
 
     let searchContext = '';
@@ -902,15 +958,14 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
                 response = await callPollinationsFree(aiModel, userMessage, history, finalSystemPrompt);
                 break;
             case 'pollinations_api':
-                response = await callPollinationsApi(aiModel, userMessage, history, finalSystemPrompt);
+                response = await callPollinationsAPI(aiModel, userMessage, history, finalSystemPrompt);
                 break;
             default:
-                // Fallback to pollinations_free
-                response = await callPollinationsFree(aiModel, userMessage, history, finalSystemPrompt);
+                response = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
         }
 
-        addToConversation(guildId, oderId, 'user', userMessage);
-        addToConversation(guildId, oderId, 'assistant', response);
+        addToConversation(guildId, userId, 'user', userMessage);
+        addToConversation(guildId, userId, 'assistant', response);
 
         const modelInfo = AI_PROVIDERS[aiProvider]?.models.find(m => m.id === aiModel) || { name: aiModel };
 
@@ -931,23 +986,22 @@ async function callAI(guildId, oderId, userMessage, isVoiceMode = false) {
             if (rotated) {
                 console.log(`🔄 Rotated ${aiProvider} key, retrying...`);
                 try {
-                    return await callAI(guildId, oderId, userMessage, isVoiceMode);
+                    return await callAI(guildId, userId, userMessage, isVoiceMode);
                 } catch (retryError) {
                     console.error('Retry failed:', retryError.message);
                 }
             }
         }
 
-        // Fallback to pollinations_free (no key needed)
         if (aiProvider !== 'pollinations_free') {
             console.log('Fallback to Pollinations Free...');
             try {
                 const fallback = await callPollinationsFree('openai', userMessage, history, finalSystemPrompt);
-                addToConversation(guildId, oderId, 'user', userMessage);
-                addToConversation(guildId, oderId, 'assistant', fallback);
+                addToConversation(guildId, userId, 'user', userMessage);
+                addToConversation(guildId, userId, 'assistant', fallback);
                 return {
                     text: fallback,
-                    provider: 'Pollinations Free (Fallback)',
+                    provider: 'Pollinations (Fallback)',
                     model: 'OpenAI GPT',
                     latency: Date.now() - start,
                     searched: !!searchData
@@ -1093,28 +1147,22 @@ function createSettingsEmbed(guildId) {
     const ai = AI_PROVIDERS[s.aiProvider];
     const model = ai?.models.find(m => m.id === s.aiModel) || { name: s.aiModel };
 
-    const isFreeProvider = ai?.requiresKey === false;
-    const providerNote = isFreeProvider ? ' 🆓' : '';
-
     return new EmbedBuilder()
         .setColor(0x5865F2)
         .setTitle('⚙️ Aria Settings')
         .addFields(
-            { name: '🧠 AI Provider', value: `**${ai?.name || s.aiProvider}**${providerNote}\n${model.name}`, inline: true },
+            { name: '🧠 AI Provider', value: `**${ai?.name || s.aiProvider}**\n${model.name}`, inline: true },
             { name: '🔊 TTS Voice', value: s.ttsVoice.split('-').slice(-1)[0], inline: true },
             { name: '🔍 Search', value: s.geminiGrounding ? '🟢 Grounding ON' : (s.searchEnabled ? '🟢 ON' : '🔴 OFF'), inline: true }
         )
-        .setFooter({ text: 'v2.17.0 • Dynamic Manager | 🆓 = Free Provider' })
+        .setFooter({ text: 'v2.18.0 • DynamicManager + Voice Only' })
         .setTimestamp();
 }
 
 function createProviderMenu(guildId) {
     const s = getSettings(guildId);
     const opts = Object.entries(AI_PROVIDERS).map(([k, p]) => ({
-        label: p.name + (p.requiresKey === false ? ' 🆓' : ''),
-        value: k,
-        default: k === s.aiProvider,
-        description: p.requiresKey === false ? 'No API key needed' : undefined
+        label: p.name, value: k, default: k === s.aiProvider
     }));
     return new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder().setCustomId('sel_ai').setPlaceholder('🧠 AI Provider').addOptions(opts)
@@ -1247,16 +1295,8 @@ client.on(Events.MessageCreate, async (msg) => {
                 await manager.showMainMenu(msg);
                 break;
 
-            case 'addapi':
-                await manager.quickAddApi(msg, args);
-                break;
-
             case 'listapi': case 'apis':
                 await manager.quickListApi(msg);
-                break;
-
-            case 'addmodel':
-                await manager.quickAddModel(msg, args);
                 break;
 
             case 'syncmodels':
@@ -1270,19 +1310,19 @@ client.on(Events.MessageCreate, async (msg) => {
 
             case 'status':
                 const poolStatus = await manager.getPoolStatus();
-                let statusText = '**📊 Bot Status v2.17.0**\n\n';
+                let statusText = '**📊 Bot Status v2.18.0**\n\n';
                 statusText += `**API Pool:**\n`;
                 for (const [p, s] of Object.entries(poolStatus)) {
                     if (s.keys > 0) statusText += `• ${p}: ${s.keys} keys (${s.active} active)\n`;
                 }
                 statusText += `\n**Free Providers:**\n• pollinations_free: 🟢 No key needed`;
-                statusText += `\n\n**Redis:** ${manager.connected ? '🟢 Connected' : '🔴 Disconnected'}`;
+                statusText += `\n\n**Redis:** ${manager.connected ? '🟢 Connected' : '🔴 Using ENV'}`;
                 statusText += `\n**Uptime:** ${Math.floor((Date.now() - startTime) / 60000)} min`;
                 await msg.reply(statusText);
                 break;
 
             case 'help': case 'h':
-                await msg.reply(`**🤖 Aria AI Bot v2.17.0**
+                await msg.reply(`**🤖 Aria AI Bot v2.18.0**
 
 **Chat:**
 • \`.ai <pertanyaan>\` - Tanya AI
@@ -1302,10 +1342,7 @@ client.on(Events.MessageCreate, async (msg) => {
 • \`.manage\` - Menu API & Model
 • \`.listapi\` - List API pools
 • \`.syncmodels <provider>\` - Sync models
-• \`.status\` - Bot status
-
-**Free Providers:**
-🆓 Pollinations (Free) - No API key needed!`);
+• \`.status\` - Bot status`);
                 break;
 
             case 'ping':
@@ -1389,17 +1426,11 @@ client.once(Events.ClientReady, () => {
     console.log('\n' + '='.repeat(50));
     console.log(`🤖 ${client.user.tag} online!`);
     console.log(`📡 ${client.guilds.cache.size} servers`);
-    console.log(`📦 v2.17.0 - Dynamic API Manager`);
+    console.log(`📦 v2.18.0 - DynamicManager + Voice Only`);
     console.log('='.repeat(50));
     console.log(`🔗 Redis: ${manager.connected ? '✅' : '❌ (using ENV fallback)'}`);
     console.log(`🔍 Serper: ${CONFIG.serperApiKey ? '✅' : '❌'}`);
     console.log(`🔍 Tavily: ${CONFIG.tavilyApiKey ? '✅' : '❌'}`);
-    console.log(`🧠 Gemini: ${CONFIG.geminiApiKey ? '✅' : '❌'}`);
-    console.log(`🧠 Groq: ${CONFIG.groqApiKey ? '✅' : '❌'}`);
-    console.log(`🧠 OpenRouter: ${CONFIG.openrouterApiKey ? '✅' : '❌'}`);
-    console.log(`🧠 HuggingFace: ${CONFIG.huggingfaceApiKey ? '✅' : '❌'}`);
-    console.log(`🌸 Pollinations Free: ✅ (No key needed)`);
-    console.log(`🌺 Pollinations API: ${CONFIG.pollinationsApiKey ? '✅' : '❌'}`);
     console.log('='.repeat(50) + '\n');
 
     client.user.setActivity(`.ai | .help`, { type: ActivityType.Listening });
