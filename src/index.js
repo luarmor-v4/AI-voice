@@ -235,10 +235,7 @@ const SEARCH_TRIGGERS = {
 
 function shouldSearch(message) {
     const lower = message.toLowerCase();
-    
-    // Flatten all triggers into single array
     const allTriggers = Object.values(SEARCH_TRIGGERS).flat();
-    
     return allTriggers.some(trigger => lower.includes(trigger));
 }
 
@@ -684,18 +681,190 @@ function splitMessage(text, maxLength = 1900) {
     return parts;
 }
 
+// ==================== TTS FUNCTIONS ====================
+
 function cleanTextForTTS(text) {
     return text
         .replace(/https?:\/\/[^\s]+/g, '')
-        .replace(/```[\s\S]*?```/g, ' kode ')
-        .replace(/`[^`]+`/g, '')
+        .replace(/www\.[^\s]+/g, '')
+        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+        .replace(/[\u{2600}-\u{27BF}]/gu, '')
+        .replace(/:[a-zA-Z0-9_]+:/g, '')
+        .replace(/```[\w]*\n?([\s\S]*?)```/g, ' kode ')
+        .replace(/`([^`]+)`/g, '$1')
         .replace(/\*\*([^*]+)\*\*/g, '$1')
         .replace(/\*([^*]+)\*/g, '$1')
         .replace(/#{1,6}\s*/g, '')
-        .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+        .replace(/\n{3,}/g, '\n\n')
         .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, 1000);
+        .trim();
+}
+
+function splitTextForTTS(text, maxLength = 900) {
+    const clean = cleanTextForTTS(text);
+    if (!clean || clean.length < 10) return [];
+    
+    if (clean.length <= maxLength) return [clean];
+    
+    const chunks = [];
+    let remaining = clean;
+    
+    while (remaining.length > 0) {
+        if (remaining.length <= maxLength) {
+            if (remaining.trim().length >= 10) chunks.push(remaining.trim());
+            break;
+        }
+        
+        let splitIndex = -1;
+        const searchArea = remaining.slice(0, maxLength);
+        
+        // Cari titik, tanda tanya, atau tanda seru
+        const lastPeriod = searchArea.lastIndexOf('. ');
+        const lastQuestion = searchArea.lastIndexOf('? ');
+        const lastExclaim = searchArea.lastIndexOf('! ');
+        splitIndex = Math.max(lastPeriod, lastQuestion, lastExclaim);
+        
+        if (splitIndex > 0 && splitIndex > maxLength / 3) {
+            splitIndex += 1;
+        } else {
+            splitIndex = -1;
+        }
+        
+        // Cari koma
+        if (splitIndex === -1) {
+            const lastComma = searchArea.lastIndexOf(', ');
+            splitIndex = lastComma > maxLength / 3 ? lastComma + 1 : -1;
+        }
+        
+        // Cari spasi
+        if (splitIndex === -1) {
+            splitIndex = searchArea.lastIndexOf(' ');
+            if (splitIndex < maxLength / 4) splitIndex = -1;
+        }
+        
+        if (splitIndex === -1) splitIndex = maxLength;
+        
+        const chunk = remaining.slice(0, splitIndex).trim();
+        if (chunk.length >= 10) chunks.push(chunk);
+        remaining = remaining.slice(splitIndex).trim();
+    }
+    
+    return chunks.filter(c => c.length >= 10);
+}
+
+function generateSingleTTSChunk(text, voice, outputPath) {
+    return new Promise((resolve, reject) => {
+        const safeText = text
+            .replace(/"/g, "'")
+            .replace(/`/g, "'")
+            .replace(/\$/g, '')
+            .replace(/\\/g, '')
+            .replace(/\n/g, ' ')
+            .trim();
+
+        if (!safeText || safeText.length < 2) {
+            return reject(new Error('Text too short'));
+        }
+
+        exec(
+            `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`,
+            { timeout: 60000 },
+            (err) => {
+                if (err) reject(err);
+                else resolve(outputPath);
+            }
+        );
+    });
+}
+
+function concatenateAudioFiles(inputFiles, outputPath) {
+    return new Promise((resolve, reject) => {
+        if (inputFiles.length === 0) return reject(new Error('No input files'));
+        
+        if (inputFiles.length === 1) {
+            try {
+                fs.copyFileSync(inputFiles[0], outputPath);
+                return resolve(outputPath);
+            } catch (e) {
+                return reject(e);
+            }
+        }
+
+        const listPath = outputPath.replace('.mp3', '_list.txt');
+        const listContent = inputFiles.map(f => `file '${path.resolve(f)}'`).join('\n');
+
+        try {
+            fs.writeFileSync(listPath, listContent);
+        } catch (e) {
+            return reject(e);
+        }
+
+        exec(
+            `ffmpeg -f concat -safe 0 -i "${listPath}" -c:a libmp3lame -q:a 2 "${outputPath}" -y`,
+            { timeout: 120000 },
+            (err) => {
+                cleanupFile(listPath);
+                if (err) reject(err);
+                else resolve(outputPath);
+            }
+        );
+    });
+}
+
+async function generateTTS(text, voice) {
+    ensureTempDir();
+    
+    const chunks = splitTextForTTS(text);
+    if (chunks.length === 0) return null;
+
+    const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const chunkFiles = [];
+
+    console.log(`🔊 TTS: ${chunks.length} chunks, total ${text.length} chars`);
+
+    try {
+        for (let i = 0; i < chunks.length; i++) {
+            const chunkPath = path.join(CONFIG.tempPath, `tts_${sessionId}_chunk${i}.mp3`);
+
+            try {
+                await generateSingleTTSChunk(chunks[i], voice, chunkPath);
+                if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
+                    chunkFiles.push(chunkPath);
+                }
+            } catch (e) {
+                console.error(`TTS chunk ${i} error:`, e.message);
+            }
+        }
+
+        if (chunkFiles.length === 0) {
+            throw new Error('No TTS chunks generated');
+        }
+
+        // Jika hanya 1 chunk, langsung return
+        if (chunkFiles.length === 1) {
+            return chunkFiles[0];
+        }
+
+        // Gabungkan semua chunks
+        const combinedPath = path.join(CONFIG.tempPath, `tts_${sessionId}_combined.mp3`);
+
+        try {
+            await concatenateAudioFiles(chunkFiles, combinedPath);
+            // Cleanup chunk files
+            chunkFiles.forEach(f => cleanupFile(f));
+            return combinedPath;
+        } catch (e) {
+            console.error('Concat error, using first chunk:', e.message);
+            // Cleanup yang lain, return chunk pertama
+            chunkFiles.slice(1).forEach(f => cleanupFile(f));
+            return chunkFiles[0];
+        }
+
+    } catch (error) {
+        chunkFiles.forEach(f => cleanupFile(f));
+        throw error;
+    }
 }
 
 // ==================== HTTP HELPER ====================
@@ -1394,11 +1563,14 @@ async function handleAI(msg, query) {
             else await msg.channel.send(parts[i]);
         }
 
+        // TTS untuk voice channel
         if (inVoice) {
             try {
                 const s = getSettings(msg.guild.id);
                 const ttsFile = await generateTTS(response.text, s.ttsVoice);
-                if (ttsFile) await playTTSInVoice(msg.guild.id, ttsFile);
+                if (ttsFile) {
+                    await playTTSInVoice(msg.guild.id, ttsFile);
+                }
             } catch (e) {
                 console.error('TTS error:', e.message);
             }
