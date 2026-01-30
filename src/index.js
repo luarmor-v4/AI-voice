@@ -550,10 +550,10 @@ Your final answer here...
 
 // ==================== SYSTEM PROMPT ====================
 
-const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI premium yang elegan, cerdas, dan profesional.
+const SYSTEM_PROMPT = `Kamu adalah Toing, asisten AI premium yang elegan, cerdas, dan profesional.
 
 ## IDENTITAS
-- Nama: Aria
+- Nama: Toing
 - Kepribadian: Hangat, cerdas, humoris namun tetap profesional
 - Gaya bicara: Santai tapi berkelas, seperti teman pintar yang menyenangkan
 
@@ -571,6 +571,8 @@ const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI premium yang elegan, cerdas,
 - Jika tidak tahu, katakan dengan jujur
 - Bedakan dengan jelas antara FAKTA, OPINI, dan SPEKULASI
 - Sebutkan jika informasi mungkin sudah tidak update
+- Tidak halusinasi dan mengingat komunikasi dari awal sampai akhir
+- Selalu konsisten dengan pengetahuan coding nya kecuali user meminta di rubah
 
 ### 2. WAWASAN LUAS
 - Berikan jawaban yang mendalam dan komprehensif
@@ -585,7 +587,7 @@ const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI premium yang elegan, cerdas,
 - Sesuaikan panjang jawaban dengan kompleksitas pertanyaan
 
 ### 4. PROFESIONAL TAPI MENYENANGKAN
-- Gunakan bahasa Indonesia yang baik dan natural
+- Gunakan bahasa Indonesia & Inggris yang baik dan natural
 - Boleh sisipkan humor ringan yang relevan
 - Gunakan emoji secukupnya untuk menambah ekspresi
 - Tetap sopan dan respectful dalam semua situasi
@@ -2555,7 +2557,7 @@ async function readStackOverflow(url) {
 }
 
 async function readYouTube(url) {
-    // Extract video ID
+    // 1. Extract Video ID
     let videoId = null;
     const patterns = [
         /youtu\.be\/([^?&]+)/,
@@ -2578,95 +2580,84 @@ async function readYouTube(url) {
     let output = '';
     let title = '';
     let description = '';
-    let channel = '';
-    
-    // Method 1: oEmbed API (gratis, tanpa key)
+    let transcriptText = '';
+
     try {
-        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
-        const oembedRes = await fetch(oembedUrl, { timeout: 10000 });
-        if (oembedRes.ok) {
-            const oembed = await oembedRes.json();
-            title = oembed.title || '';
-            channel = oembed.author_name || '';
-        }
-    } catch (e) {}
-    
-    // Method 2: Scrape halaman YouTube untuk deskripsi
-    try {
+        // 2. Fetch Halaman YouTube
         const pageRes = await fetch(`https://www.youtube.com/watch?v=${videoId}`, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
                 'Accept-Language': 'en-US,en;q=0.9',
-                'Accept': 'text/html,application/xhtml+xml'
-            },
-            timeout: 15000
+            }
         });
         
-        if (pageRes.ok) {
-            const html = await pageRes.text();
-            
-            // Extract title from meta
-            const titleMatch = html.match(/<meta name="title" content="([^"]+)"/) ||
-                              html.match(/<title>([^<]+)<\/title>/);
-            if (titleMatch && !title) title = titleMatch[1].replace(' - YouTube', '');
-            
-            // Extract description from meta
-            const descMatch = html.match(/<meta name="description" content="([^"]+)"/) ||
-                             html.match(/"shortDescription":"([^"]+)"/);
-            if (descMatch) description = descMatch[1].replace(/\\n/g, '\n');
-            
-            // Extract channel name
-            const channelMatch = html.match(/"ownerChannelName":"([^"]+)"/) ||
-                                html.match(/<link itemprop="name" content="([^"]+)">/);
-            if (channelMatch && !channel) channel = channelMatch[1];
-            
-            // Extract view count
-            const viewMatch = html.match(/"viewCount":"(\d+)"/) ||
-                             html.match(/"views":"([^"]+)"/);
-            const views = viewMatch ? parseInt(viewMatch[1]).toLocaleString('id-ID') : null;
-            
-            // Extract publish date
-            const dateMatch = html.match(/"publishDate":"([^"]+)"/) ||
-                             html.match(/"uploadDate":"([^"]+)"/);
-            const publishDate = dateMatch ? new Date(dateMatch[1]).toLocaleDateString('id-ID') : null;
-            
-            // Extract duration
-            const durationMatch = html.match(/"lengthSeconds":"(\d+)"/);
-            let duration = null;
-            if (durationMatch) {
-                const secs = parseInt(durationMatch[1]);
-                const mins = Math.floor(secs / 60);
-                const remainSecs = secs % 60;
-                duration = `${mins}:${remainSecs.toString().padStart(2, '0')}`;
+        const html = await pageRes.text();
+
+        // 3. Extract Metadata
+        const titleMatch = html.match(/<meta name="title" content="([^"]+)"/);
+        title = titleMatch ? titleMatch[1] : `Video ${videoId}`;
+        
+        const descMatch = html.match(/"shortDescription":"([^"]+)"/);
+        if (descMatch) description = descMatch[1].replace(/\\n/g, '\n');
+
+        const channelMatch = html.match(/"ownerChannelName":"([^"]+)"/);
+        const channel = channelMatch ? channelMatch[1] : 'Unknown';
+
+        const viewMatch = html.match(/"viewCount":"(\d+)"/);
+        const views = viewMatch ? parseInt(viewMatch[1]).toLocaleString('id-ID') : '-';
+
+        const lengthMatch = html.match(/"lengthSeconds":"(\d+)"/);
+        const duration = lengthMatch ? `${Math.floor(lengthMatch[1]/60)}:${(lengthMatch[1]%60).toString().padStart(2,'0')}` : '-';
+
+        // 4. Extract Transcript / Subtitle (HACK)
+        // YouTube menyimpan subtitle di dalam variabel javascript 'captionTracks'
+        const captionMatch = html.match(/"captionTracks":(\[.*?\])/);
+        
+        if (captionMatch) {
+            const tracks = JSON.parse(captionMatch[1]);
+            // Prioritaskan Bahasa Indonesia, lalu Inggris, lalu yang pertama
+            const track = tracks.find(t => t.languageCode === 'id') || 
+                          tracks.find(t => t.languageCode === 'en') || 
+                          tracks[0];
+
+            if (track && track.baseUrl) {
+                // Fetch XML Transcript
+                const transcriptRes = await fetch(track.baseUrl);
+                const transcriptXml = await transcriptRes.text();
+                
+                // Bersihkan XML tags untuk dapat teks murni
+                transcriptText = transcriptXml
+                    .replace(/<[^>]*>/g, ' ')       // Hapus tag HTML/XML
+                    .replace(/&amp;/g, '&')
+                    .replace(/&#39;/g, "'")
+                    .replace(/&quot;/g, '"')
+                    .replace(/\s+/g, ' ')           // Hapus spasi ganda
+                    .trim();
             }
-            
-            // Extract keywords/tags
-            const keywordsMatch = html.match(/<meta name="keywords" content="([^"]+)"/);
-            const keywords = keywordsMatch ? keywordsMatch[1] : null;
-            
-            // Build output
-            output = `🎬 **${title}**\n\n`;
-            output += `📺 **Channel:** ${channel}\n`;
-            if (views) output += `👁️ **Views:** ${views}\n`;
-            if (duration) output += `⏱️ **Duration:** ${duration}\n`;
-            if (publishDate) output += `📅 **Published:** ${publishDate}\n`;
-            output += `\n📝 **Description:**\n${description.slice(0, 2000)}\n`;
-            if (keywords) output += `\n🏷️ **Tags:** ${keywords.slice(0, 500)}`;
         }
+
+        // 5. Susun Output untuk AI
+        output = `🎬 **${title}**\n`;
+        output += `📺 Channel: ${channel} | 👁️ Views: ${views} | ⏱️ Durasi: ${duration}\n\n`;
+        
+        if (transcriptText) {
+            output += `🗣️ **TRANSKRIP AUDIO (ISI VIDEO):**\n"${transcriptText.slice(0, 15000)}..."\n\n`;
+            output += `*Catatan: Analisis di atas didasarkan pada apa yang diucapkan dalam video.*\n\n`;
+        } else {
+            output += `⚠️ **Tidak ada subtitle/transkrip tersedia.** Analisis hanya berdasarkan deskripsi.\n\n`;
+        }
+
+        output += `📝 **Deskripsi:**\n${description.slice(0, 2000)}`;
+
     } catch (e) {
-        console.error('YouTube scrape error:', e.message);
+        console.error('YouTube Fetch Error:', e.message);
+        output = `Gagal mengambil data YouTube. ID: ${videoId}`;
     }
-    
-    // Fallback jika gagal
-    if (!output) {
-        output = `🎬 **YouTube Video**\n\nVideo ID: ${videoId}\nURL: https://youtube.com/watch?v=${videoId}\n\n⚠️ Tidak dapat mengambil detail video.`;
-    }
-    
+
     return {
         type: 'youtube',
         videoId: videoId,
         title: title,
-        channel: channel,
         content: output
     };
 }
@@ -2836,7 +2827,7 @@ if (content.length > maxContent) {
         let finalMsg = `📄 **${attachment.name}**\n\n${response.text}`;
         finalMsg += `\n\n-# ${response.model} • ${response.latency}ms`;
         
-        if (content.length > 12000) {
+        if (content.length > 1000000) {
             finalMsg += ` • ⚠️ File terpotong`;
         }
         
@@ -2976,7 +2967,7 @@ async function handleSearchCommand(msg, query) {
 **Contoh:**
 • \`.search berita teknologi hari ini\`
 • \`.search harga bitcoin terkini\`
-• \`.search siapa presiden Indonesia 2024\`
+• \`.search siapa presiden Indonesia 2026\`
 • \`.search cuaca Jakarta hari ini\`
 
 Bot akan mencari di internet dan memberikan jawaban lengkap.`);
