@@ -1010,7 +1010,7 @@ async function callGroq(model, message, history, systemPrompt) {
         path: '/openai/v1/chat/completions',
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }
-    }, JSON.stringify({ model, messages, max_completion_tokens: 2000, temperature: 0.7 }));
+    }, JSON.stringify({ model, messages, max_completion_tokens: 8000, temperature: 0.7 }));
 
     if (statusCode !== 200) {
         const result = JSON.parse(data);
@@ -2696,11 +2696,12 @@ async function handleFileReadWithQuery(msg, attachment, query = '') {
             analysisPrompt = `Analisis file "${attachment.name}" dan jelaskan isinya:\n\n`;
         }
         
-        analysisPrompt += `[FILE CONTENT]\n${content.slice(0, 12000)}`;
-        
-        if (content.length > 12000) {
-            analysisPrompt += `\n\n[Note: File terpotong, total ${content.length} karakter]`;
-        }
+        const maxContent = 50000;
+analysisPrompt += `[FILE CONTENT]\n${content.slice(0, maxContent)}`;
+
+if (content.length > maxContent) {
+    analysisPrompt += `\n\n[Note: File terpotong, total ${content.length} karakter]`;
+}
         
         // Call AI
         const response = await callAI(msg.guild.id, msg.author.id, analysisPrompt, false);
