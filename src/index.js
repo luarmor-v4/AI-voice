@@ -1690,21 +1690,19 @@ async function handleSearchCommand(msg, query) {
     }
 }
 
-// ==================== MESSAGE HANDLER (CONTINUED) ====================
+// ==================== MESSAGE HANDLER ====================
 
-        // Check for readable files
-        const readableFiles = msg.attachments.filter(a => {
-            const ext = path.extname(a.name || '').toLowerCase();
-            const readableExts = ['.txt', '.js', '.py', '.json', '.md', '.yml', '.yaml', '.xml', '.html', '.css', '.cpp', '.c', '.java', '.ts', '.tsx', '.jsx', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.log', '.ini', '.env', '.sh', '.bat', '.sql', '.go', '.rs', '.php', '.rb', '.swift', '.kt'];
-            return readableExts.includes(ext);
-        });
-        
-        if (readableFiles.size > 0) {
-            await handleFileRead(msg);
-            return;
-        }
-        
-        // Check for images
+client.on(Events.MessageCreate, async (msg) => {
+    if (msg.author.bot || !msg.guild) return;
+
+    const content = msg.content;
+    const urls = detectURLs(content);
+    const hasMention = msg.mentions.has(client.user);
+    const hasCommand = content.startsWith(CONFIG.prefix);
+    const hasAttachments = msg.attachments.size > 0;
+    
+    // ===== AUTO IMAGE ANALYSIS =====
+    if (hasMention && hasAttachments) {
         const images = msg.attachments.filter(a => 
             a.contentType && a.contentType.startsWith('image/')
         );
@@ -1713,732 +1711,301 @@ async function handleSearchCommand(msg, query) {
             await handleImageAnalysis(msg);
             return;
         }
-    }
-    
-    // ===== AUTO IMAGE DETECTION =====
-    if (msg.attachments.size > 0 && !hasCommand) {
-        const images = msg.attachments.filter(a => 
-            a.contentType && a.contentType.startsWith('image/')
-        );
         
-        const imageKeywords = ['analisis', 'analyze', 'jelaskan', 'explain', 'apa ini', 'what is', 'describe', 'lihat', 'look', 'cek', 'check', 'baca', 'read'];
-        const hasImageKeyword = imageKeywords.some(k => content.toLowerCase().includes(k));
+        // Check for document files
+        const docs = msg.attachments.filter(a => {
+            const ext = path.extname(a.name).toLowerCase();
+            return ['.txt', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv', '.js', '.py', '.json', '.md'].includes(ext);
+        });
         
-        if (images.size > 0 && (hasMention || hasImageKeyword)) {
-            await handleImageAnalysis(msg);
+        if (docs.size > 0) {
+            await handleFileRead(msg);
             return;
         }
     }
     
-    // ===== MENTION HANDLER =====
-    if (hasMention && !hasCommand) {
-        const cleanQuery = content.replace(/<@!?\d+>/g, '').trim();
-        if (cleanQuery.length > 0) {
-            await handleAI(msg, cleanQuery);
-        } else {
-            const greetings = [
-                '👋 Hai! Aku Aria, asisten AI-mu. Ada yang bisa kubantu?',
-                '✨ Halo! Aku Aria. Mau tanya apa hari ini?',
-                '🌟 Hey! Aria di sini. Silakan tanya apapun!',
-                '💫 Hai! Aku Aria, siap membantu. Apa yang ingin kamu ketahui?'
-            ];
-            await msg.reply(greetings[Math.floor(Math.random() * greetings.length)]);
+    // ===== AUTO URL DETECTION =====
+    if (urls.length > 0 && !hasCommand) {
+        // Skip if media file or shortener
+        const validURLs = urls.filter(url => !isMediaFile(url) && !isShortener(url));
+        
+        if (validURLs.length > 0) {
+            // Check if should respond
+            const hasQuestion = /apa|bagaimana|jelaskan|what|how|explain|analyze|summarize|ringkas|baca|read/i.test(content);
+            const autoFetch = validURLs.some(shouldAutoFetch);
+            
+            if (hasMention || hasQuestion || autoFetch) {
+                await handleURLAuto(msg, validURLs, content);
+                return;
+            }
         }
-        return;
+    }
+    
+    // ===== MENTION HANDLER =====
+    if (hasMention) {
+        const query = content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
+        if (query) return handleAI(msg, query);
+        return msg.reply('👋 Hai! Mention aku dengan pertanyaan atau ketik `.help` untuk bantuan.');
     }
 
     // ===== COMMAND HANDLER =====
     if (!hasCommand) return;
 
-    const args = content.slice(CONFIG.prefix.length).trim().split(/\s+/);
-    const cmd = args.shift()?.toLowerCase();
+    const args = content.slice(CONFIG.prefix.length).trim().split(/ +/);
+    const cmd = args.shift().toLowerCase();
 
-    switch (cmd) {
-        // ==================== AI COMMANDS ====================
-        case 'ai':
-        case 'chat':
-        case 'ask':
-        case 'tanya':
-        case 'a':
-            if (!args.length) return msg.reply('❓ Contoh: `.ai Apa itu machine learning?`');
-            await handleAI(msg, args.join(' '));
-            break;
+    try {
+        switch (cmd) {
+            // ===== AI COMMANDS =====
+            case 'ai':
+            case 'ask':
+            case 'chat':
+            case 'tanya':
+                if (!args.join(' ')) return msg.reply('❓ `.ai <pertanyaan>`');
+                await handleAI(msg, args.join(' '));
+                break;
 
-        case 'search':
-        case 'cari':
-        case 's':
-            await handleSearchCommand(msg, args.join(' '));
-            break;
+            // ===== SEARCH COMMAND =====
+            case 'search':
+            case 'cari':
+            case 's':
+                await handleSearchCommand(msg, args.join(' '));
+                break;
 
-        case 'think':
-        case 'reason':
-        case 'pikir':
-            if (!args.length) return msg.reply('❓ Contoh: `.think Bagaimana cara kerja AI?`');
-            await handleThinkingAI(msg, args.join(' '));
-            break;
-
-        case 'analyze':
-        case 'analisis':
-            if (msg.attachments.size > 0) {
-                const images = msg.attachments.filter(a => a.contentType?.startsWith('image/'));
-                if (images.size > 0) {
-                    await handleImageAnalysis(msg);
-                } else {
+            // ===== FILE & IMAGE COMMANDS =====
+            case 'read':
+            case 'baca':
+                if (msg.attachments.size > 0) {
                     await handleFileRead(msg);
-                }
-            } else {
-                await msg.reply('❓ Upload file atau gambar untuk dianalisis\nContoh: Upload gambar lalu ketik `.analyze`');
-            }
-            break;
-
-        case 'read':
-        case 'baca':
-            if (msg.attachments.size > 0) {
-                await handleFileRead(msg);
-            } else if (args.length > 0 && args[0].startsWith('http')) {
-                await handleURLAuto(msg, [args[0]], args.slice(1).join(' ') || 'Jelaskan konten URL ini');
-            } else {
-                await msg.reply('❓ Upload file atau berikan URL\nContoh: `.read https://example.com`');
-            }
-            break;
-
-        case 'url':
-        case 'link':
-        case 'web':
-            if (args.length === 0) return msg.reply('❓ Contoh: `.url https://github.com/user/repo`');
-            const targetUrl = args[0];
-            const urlQuery = args.slice(1).join(' ') || 'Jelaskan konten dari URL ini secara detail';
-            await handleURLAuto(msg, [targetUrl], urlQuery);
-            break;
-
-        case 'summarize':
-        case 'ringkas':
-        case 'summary':
-            if (msg.attachments.size > 0) {
-                await handleFileSummary(msg);
-            } else if (args.length > 0 && args[0].startsWith('http')) {
-                await handleURLSummary(msg, args[0]);
-            } else {
-                await msg.reply('❓ Upload file atau berikan URL untuk diringkas');
-            }
-            break;
-
-        // ==================== VOICE COMMANDS ====================
-        case 'join':
-        case 'connect':
-        case 'masuk':
-            const joinResult = await joinUserVoiceChannel(msg.member, msg.guild);
-            if (joinResult.success) {
-                if (joinResult.alreadyConnected) {
-                    await msg.reply(`✅ Sudah terhubung di **${joinResult.channel.name}**`);
+                } else if (args.length > 0 && args[0].startsWith('http')) {
+                    await handleURLAuto(msg, [args[0]], args.slice(1).join(' ') || 'Jelaskan konten dari URL ini');
                 } else {
-                    await msg.reply(`🔊 Bergabung ke **${joinResult.channel.name}**`);
+                    await msg.reply('❓ Upload file atau berikan URL\n`.read <url>` atau `.read` + upload file');
                 }
-            } else {
-                await msg.reply(`❌ ${joinResult.error}`);
-            }
-            break;
+                break;
 
-        case 'leave':
-        case 'disconnect':
-        case 'dc':
-        case 'keluar':
-            if (await leaveVoiceChannel(msg.guild)) {
-                await msg.reply('👋 Keluar dari voice channel');
-            } else {
-                await msg.reply('❌ Tidak ada di voice channel');
-            }
-            break;
-
-        case 'speak':
-        case 'say':
-        case 'tts':
-        case 'bicara':
-            await handleSpeak(msg, args.join(' '));
-            break;
-
-        case 'stop':
-        case 'berhenti':
-            const player = audioPlayers.get(msg.guild.id);
-            if (player) {
-                player.stop();
-                const queueData = ttsQueues.get(msg.guild.id);
-                if (queueData) {
-                    queueData.queue.forEach(item => cleanupFile(item.file));
-                    queueData.queue = [];
-                    if (queueData.currentFile) {
-                        cleanupFile(queueData.currentFile);
-                        queueData.currentFile = null;
+            case 'analyze':
+            case 'analisis':
+                if (msg.attachments.size > 0) {
+                    const images = msg.attachments.filter(a => a.contentType?.startsWith('image/'));
+                    if (images.size > 0) {
+                        await handleImageAnalysis(msg);
+                    } else {
+                        await handleFileRead(msg);
                     }
+                } else {
+                    await msg.reply('❓ Upload gambar atau file untuk dianalisis');
                 }
-                await msg.reply('⏹️ Audio dihentikan');
-            } else {
-                await msg.reply('❌ Tidak ada audio yang sedang diputar');
-            }
-            break;
+                break;
 
-        case 'skip':
-            const skipPlayer = audioPlayers.get(msg.guild.id);
-            if (skipPlayer) {
-                skipPlayer.stop();
-                await msg.reply('⏭️ Skipped');
-            }
-            break;
+            // ===== VOICE COMMANDS =====
+            case 'join':
+            case 'j':
+                const jr = await joinUserVoiceChannel(msg.member, msg.guild);
+                await msg.reply(jr.success ? (jr.alreadyConnected ? `✅ Already in **${jr.channel.name}**` : `🔊 Joined **${jr.channel.name}**`) : `❌ ${jr.error}`);
+                break;
 
-        // ==================== CONVERSATION COMMANDS ====================
-        case 'clear':
-        case 'reset':
-        case 'new':
-        case 'baru':
-            clearConversation(msg.guild.id, msg.author.id);
-            await msg.reply('🗑️ Percakapan dihapus. Memulai sesi baru!');
-            break;
+            case 'leave':
+            case 'dc':
+            case 'disconnect':
+                await msg.reply(await leaveVoiceChannel(msg.guild) ? '👋 Left voice channel' : '❌ Not in voice channel');
+                break;
 
-        case 'history':
-        case 'riwayat':
-            const conv = getConversation(msg.guild.id, msg.author.id);
-            if (conv.messages.length === 0) {
-                await msg.reply('📭 Belum ada riwayat percakapan');
-            } else {
-                const historyEmbed = new EmbedBuilder()
+            case 'speak':
+            case 'say':
+            case 'tts':
+                await handleSpeak(msg, args.join(' '));
+                break;
+
+            case 'stop':
+                const player = audioPlayers.get(msg.guild.id);
+                if (player) {
+                    player.stop();
+                    await msg.reply('⏹️ Stopped');
+                } else {
+                    await msg.reply('❌ Nothing playing');
+                }
+                break;
+
+            // ===== SETTINGS COMMANDS =====
+            case 'settings':
+            case 'config':
+            case 'set':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                const comps = [
+                    createProviderMenu(msg.guild.id),
+                    createModelMenu(msg.guild.id),
+                    createVoiceMenu(msg.guild.id),
+                    createModeButtons(msg.guild.id)
+                ].filter(Boolean);
+                await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
+                break;
+
+            case 'clear':
+            case 'reset':
+            case 'forget':
+                clearConversation(msg.guild.id, msg.author.id);
+                await msg.reply('🗑️ Conversation memory cleared!');
+                break;
+
+            // ===== API MANAGER COMMANDS =====
+            case 'manage':
+            case 'apimanager':
+            case 'manager':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                await manager.showMainMenu(msg);
+                break;
+
+            case 'listapi':
+            case 'apis':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                await manager.quickListApi(msg);
+                break;
+
+            case 'syncmodels':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                await manager.quickSyncModels(msg, args[0]);
+                break;
+
+            // ===== INFO COMMANDS =====
+            case 'status':
+            case 'stats':
+                const poolStatus = await manager.getPoolStatus();
+                let statusText = '**📊 Bot Status v3.0.0**\n\n';
+                statusText += `**Uptime:** ${Math.floor((Date.now() - startTime) / 60000)} min\n`;
+                statusText += `**Servers:** ${client.guilds.cache.size}\n`;
+                statusText += `**Conversations:** ${conversations.size}\n`;
+                statusText += `**Voice Connections:** ${voiceConnections.size}\n\n`;
+                statusText += `**Features:**\n`;
+                statusText += `• AI Chat: ✅\n`;
+                statusText += `• Voice TTS: ✅\n`;
+                statusText += `• Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? '✅' : '❌'}\n`;
+                statusText += `• URL Reading: ✅\n`;
+                statusText += `• File Reading: ✅\n`;
+                statusText += `• Image Analysis: ${CONFIG.geminiApiKey ? '✅' : '❌'}\n\n`;
+                statusText += `**API Pool:**\n`;
+                for (const [p, s] of Object.entries(poolStatus)) {
+                    if (s.keys > 0) statusText += `• ${p}: ${s.keys} keys (${s.active} active)\n`;
+                }
+                statusText += `\n**Redis:** ${manager.connected ? '🟢 Connected' : '🔴 Using ENV fallback'}`;
+                await msg.reply(statusText);
+                break;
+
+            case 'help':
+            case 'h':
+            case 'commands':
+                const helpEmbed = new EmbedBuilder()
                     .setColor(0x5865F2)
-                    .setTitle('📜 Riwayat Percakapan')
-                    .setDescription(`Total: ${conv.messages.length} pesan`)
+                    .setTitle('🤖 Aria AI Bot v3.0')
+                    .setDescription('Asisten AI canggih dengan berbagai kemampuan')
                     .addFields(
-                        conv.messages.slice(-5).map((m, i) => ({
-                            name: m.role === 'user' ? '👤 Kamu' : '🤖 Aria',
-                            value: m.content.slice(0, 200) + (m.content.length > 200 ? '...' : ''),
+                        {
+                            name: '💬 Chat & AI',
+                            value: '`.ai <pertanyaan>` - Tanya AI\n`@Aria <pertanyaan>` - Mention bot\n`.search <query>` - Search + AI\n`.clear` - Hapus memory',
                             inline: false
-                        }))
-                    )
-                    .setFooter({ text: 'Menampilkan 5 pesan terakhir' });
-                await msg.reply({ embeds: [historyEmbed] });
-            }
-            break;
-
-        case 'clearall':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin yang bisa menggunakan perintah ini');
-            let cleared = 0;
-            for (const [key] of conversations) {
-                if (key.startsWith(msg.guild.id)) {
-                    conversations.delete(key);
-                    cleared++;
-                }
-            }
-            await msg.reply(`🗑️ Menghapus ${cleared} percakapan di server ini`);
-            break;
-
-        // ==================== SETTINGS COMMANDS ====================
-        case 'settings':
-        case 'set':
-        case 'config':
-        case 'pengaturan':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Hanya admin yang bisa mengakses pengaturan');
-            const comps = [
-                createProviderMenu(msg.guild.id),
-                createModelMenu(msg.guild.id),
-                createVoiceMenu(msg.guild.id),
-                createModeButtons(msg.guild.id)
-            ].filter(Boolean);
-            await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
-            break;
-
-        case 'model':
-        case 'info':
-            const settings = getSettings(msg.guild.id);
-            const aiInfo = AI_PROVIDERS[settings.aiProvider];
-            const modelInfo = aiInfo?.models.find(m => m.id === settings.aiModel);
-            
-            const infoEmbed = new EmbedBuilder()
-                .setColor(0x5865F2)
-                .setTitle('🧠 Model AI Aktif')
-                .addFields(
-                    { name: 'Provider', value: aiInfo?.name || settings.aiProvider, inline: true },
-                    { name: 'Model', value: modelInfo?.name || settings.aiModel, inline: true },
-                    { name: 'Voice', value: settings.ttsVoice.split('-').pop().replace('Neural', ''), inline: true },
-                    { name: 'Search', value: settings.searchEnabled ? '✅ Aktif' : '❌ Nonaktif', inline: true },
-                    { name: 'Grounding', value: settings.geminiGrounding ? '✅ Aktif' : '❌ Nonaktif', inline: true }
-                );
-            await msg.reply({ embeds: [infoEmbed] });
-            break;
-
-        case 'setmodel':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-            if (args.length < 2) return msg.reply('❓ `.setmodel <provider> <model>`\nProviders: gemini, groq, openrouter, huggingface, pollinations_free');
-            const [newProvider, ...modelParts] = args;
-            const newModel = modelParts.join(' ');
-            if (!AI_PROVIDERS[newProvider]) return msg.reply(`❌ Provider tidak ditemukan: ${newProvider}`);
-            updateSettings(msg.guild.id, 'aiProvider', newProvider);
-            if (newModel) {
-                const foundModel = AI_PROVIDERS[newProvider].models.find(m => 
-                    m.id.toLowerCase().includes(newModel.toLowerCase()) || 
-                    m.name.toLowerCase().includes(newModel.toLowerCase())
-                );
-                if (foundModel) {
-                    updateSettings(msg.guild.id, 'aiModel', foundModel.id);
-                    await msg.reply(`✅ Model diubah ke **${AI_PROVIDERS[newProvider].name}** - ${foundModel.name}`);
-                } else {
-                    updateSettings(msg.guild.id, 'aiModel', AI_PROVIDERS[newProvider].models[0].id);
-                    await msg.reply(`✅ Provider diubah ke **${AI_PROVIDERS[newProvider].name}** (model default)`);
-                }
-            }
-            break;
-
-        // ==================== ADMIN COMMANDS ====================
-        case 'dm':
-        case 'dynamic':
-        case 'keys':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-            const dmEmbed = manager.createStatusEmbed();
-            const dmComponents = manager.createManagementUI();
-            await msg.reply({ embeds: [dmEmbed], components: dmComponents });
-            break;
-
-        case 'addkey':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-            if (args.length < 2) return msg.reply('❓ `.addkey <provider> <key>`\nProviders: gemini, groq, openrouter, huggingface, pollinations_api, tavily, serper');
-            const [keyProvider, apiKey] = args;
-            try {
-                await manager.addKey(keyProvider, apiKey);
-                await msg.reply(`✅ Key untuk **${keyProvider}** berhasil ditambahkan`);
-                try { await msg.delete(); } catch {} // Delete for security
-            } catch (e) {
-                await msg.reply(`❌ ${e.message}`);
-            }
-            break;
-
-        case 'removekey':
-            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-            if (args.length < 2) return msg.reply('❓ `.removekey <provider> <index>`');
-            try {
-                await manager.removeKey(args[0], parseInt(args[1]) - 1);
-                await msg.reply(`✅ Key berhasil dihapus`);
-            } catch (e) {
-                await msg.reply(`❌ ${e.message}`);
-            }
-            break;
-
-        case 'status':
-        case 'stats':
-            const uptime = Math.floor((Date.now() - startTime) / 1000);
-            const hours = Math.floor(uptime / 3600);
-            const minutes = Math.floor((uptime % 3600) / 60);
-            const seconds = uptime % 60;
-            
-            const statusEmbed = new EmbedBuilder()
-                .setColor(0x00FF00)
-                .setTitle('📊 Status Bot')
-                .setThumbnail(client.user.displayAvatarURL())
-                .addFields(
-                    { name: '⏱️ Uptime', value: `${hours}h ${minutes}m ${seconds}s`, inline: true },
-                    { name: '🏠 Servers', value: `${client.guilds.cache.size}`, inline: true },
-                    { name: '👥 Users', value: `${client.users.cache.size}`, inline: true },
-                    { name: '💬 Conversations', value: `${conversations.size}`, inline: true },
-                    { name: '🔊 Voice', value: `${voiceConnections.size}`, inline: true },
-                    { name: '🧠 Memory', value: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`, inline: true },
-                    { name: '📡 Ping', value: `${Math.round(client.ws.ping)}ms`, inline: true },
-                    { name: '🤖 Version', value: 'v3.0.0', inline: true }
-                )
-                .setTimestamp();
-            await msg.reply({ embeds: [statusEmbed] });
-            break;
-
-        case 'ping':
-        case 'p':
-            const start = Date.now();
-            const pingMsg = await msg.reply('🏓 Pinging...');
-            const latency = Date.now() - start;
-            await pingMsg.edit(`🏓 Pong!\n> Bot: \`${latency}ms\`\n> API: \`${Math.round(client.ws.ping)}ms\``);
-            break;
-
-        case 'eval':
-            if (!isAdmin(msg.author.id)) return;
-            if (!args.length) return;
-            try {
-                const code = args.join(' ');
-                let result = eval(code);
-                if (result instanceof Promise) result = await result;
-                if (typeof result !== 'string') result = require('util').inspect(result, { depth: 2 });
-                await msg.reply(`\`\`\`js\n${result.slice(0, 1900)}\n\`\`\``);
-            } catch (e) {
-                await msg.reply(`❌ \`\`\`js\n${e.message}\n\`\`\``);
-            }
-            break;
-
-        // ==================== HELP COMMAND ====================
-        case 'help':
-        case 'h':
-        case 'commands':
-        case 'bantuan':
-            const helpEmbed = new EmbedBuilder()
-                .setColor(0x5865F2)
-                .setTitle('🌟 Aria - AI Assistant')
-                .setDescription('Asisten AI premium dengan fitur lengkap: chat, voice, search, file reading, dan image analysis.')
-                .setThumbnail(client.user.displayAvatarURL())
-                .addFields(
-                    { 
-                        name: '💬 Chat & AI', 
-                        value: [
-                            '`.ai <pesan>` - Chat dengan AI',
-                            '`.search <query>` - Cari & analisis info terkini',
-                            '`.think <pertanyaan>` - Mode reasoning mendalam',
-                            '`@Aria <pesan>` - Mention untuk chat'
-                        ].join('\n'),
-                        inline: false 
-                    },
-                    { 
-                        name: '📄 File & URL', 
-                        value: [
-                            '`.read <url>` - Baca & analisis URL/website',
-                            '`.analyze` + file - Analisis file dokumen',
-                            '`.analyze` + gambar - Analisis gambar',
-                            '`.summarize` + file/url - Ringkas konten'
-                        ].join('\n'),
-                        inline: false 
-                    },
-                    { 
-                        name: '🔊 Voice & TTS', 
-                        value: [
-                            '`.join` - Masuk voice channel',
-                            '`.leave` - Keluar voice channel',
-                            '`.speak <teks>` - Text to speech',
-                            '`.stop` - Hentikan audio'
-                        ].join('\n'),
-                        inline: false 
-                    },
-                    { 
-                        name: '⚙️ Pengaturan', 
-                        value: [
-                            '`.settings` - Panel pengaturan (Admin)',
-                            '`.model` - Lihat model aktif',
-                            '`.status` - Status bot',
-                            '`.clear` - Hapus riwayat chat'
-                        ].join('\n'),
-                        inline: false 
-                    },
-                    {
-                        name: '💡 Tips',
-                        value: [
-                            '• Upload file/gambar lalu mention @Aria untuk auto-analyze',
-                            '• Kirim URL dengan pertanyaan untuk auto-read',
-                            '• Di voice channel, respons AI otomatis dibacakan'
-                        ].join('\n'),
-                        inline: false
-                    }
-                )
-                .setFooter({ text: 'v3.0.0 • Complete Edition • Made with ❤️' })
-                .setTimestamp();
-            await msg.reply({ embeds: [helpEmbed] });
-            break;
-
-        // ==================== DEFAULT - DIRECT AI ====================
-        default:
-            if (cmd && cmd.length > 2 && !cmd.startsWith('.')) {
-                await handleAI(msg, content.slice(CONFIG.prefix.length));
-            }
-    }
-});
-
-// ==================== ADDITIONAL HANDLERS ====================
-
-async function handleThinkingAI(msg, query) {
-    const rateCheck = checkRateLimit(msg.author.id);
-    if (!rateCheck.allowed) return msg.reply(`⏳ Tunggu ${rateCheck.waitTime} detik`);
-
-    const statusMsg = await msg.reply('💭 Sedang berpikir mendalam...');
-    
-    try {
-        const thinkingPrompt = `${SYSTEM_PROMPT}
-
-[THINKING MODE]
-Kamu diminta untuk berpikir step-by-step secara mendalam sebelum memberikan jawaban.
-
-Format respons:
-[THINKING]
-1. Analisis pertanyaan...
-2. Pertimbangkan berbagai sudut pandang...
-3. Evaluasi informasi yang relevan...
-4. Simpulkan...
-[/THINKING]
-
-[ANSWER]
-Jawaban final yang komprehensif...
-[/ANSWER]
-
-Pertanyaan: ${query}`;
-
-        const response = await callAI(msg.guild.id, msg.author.id, thinkingPrompt, false);
-        const { thinking, answer } = parseThinkingResponse(response.text);
-        
-        let finalResponse = '';
-        
-        if (thinking && thinking.length > 20) {
-            finalResponse = `||💭 **Proses Berpikir:**\n${thinking.slice(0, 1500)}||\n\n`;
-        }
-        
-        finalResponse += `✨ **Jawaban:**\n${answer || response.text}`;
-        finalResponse += `\n\n-# ${response.model} • ${response.latency}ms 💭`;
-        
-        const parts = splitMessage(finalResponse);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleFileSummary(msg) {
-    if (msg.attachments.size === 0) {
-        return msg.reply('❓ Upload file yang ingin diringkas');
-    }
-    
-    const attachment = msg.attachments.first();
-    
-    if (attachment.size > CONFIG.maxFileSize) {
-        return msg.reply(`❌ File terlalu besar (max ${CONFIG.maxFileSize / 1024 / 1024}MB)`);
-    }
-    
-    const statusMsg = await msg.reply('📄 Membaca file...');
-    
-    try {
-        const content = await readFile(attachment);
-        
-        if (!content || content.length < 10) {
-            return statusMsg.edit('❌ Tidak dapat membaca konten file');
-        }
-        
-        await statusMsg.edit('✍️ Membuat ringkasan...');
-        
-        const prompt = `Buatkan ringkasan yang komprehensif dari dokumen berikut. Sertakan poin-poin penting.
-
-File: ${attachment.name}
-Konten:
-${content.slice(0, 10000)}
-
-Buat ringkasan dalam format:
-## Ringkasan
-[Ringkasan utama dalam 2-3 paragraf]
-
-## Poin-Poin Penting
-- [Poin 1]
-- [Poin 2]
-- [dst]
-
-## Kesimpulan
-[Kesimpulan singkat]`;
-        
-        const response = await callAI(msg.guild.id, msg.author.id, prompt, false);
-        
-        let finalMsg = `📄 **Ringkasan: ${attachment.name}**\n\n${response.text}\n\n-# ${response.model} • ${response.latency}ms`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-async function handleURLSummary(msg, url) {
-    const statusMsg = await msg.reply('🔗 Membaca URL...');
-    
-    try {
-        let content;
-        if (url.includes('github.com') && url.includes('/blob/')) {
-            content = await readGitHubFile(url);
-        } else {
-            content = await fetchURLClean(url);
-        }
-        
-        if (!content || content.length < 100) {
-            return statusMsg.edit('❌ Tidak dapat membaca konten URL');
-        }
-        
-        await statusMsg.edit('✍️ Membuat ringkasan...');
-        
-        const domain = new URL(url).hostname;
-        const prompt = `Buatkan ringkasan yang komprehensif dari halaman web berikut.
-
-URL: ${url}
-Konten:
-${content.slice(0, 10000)}
-
-Buat ringkasan dalam format:
-## Ringkasan
-[Ringkasan utama]
-
-## Poin-Poin Penting
-- [Poin 1]
-- [Poin 2]
-- [dst]`;
-        
-        const response = await callAI(msg.guild.id, msg.author.id, prompt, false);
-        
-        let finalMsg = `🔗 **Ringkasan: ${domain}**\n\n${response.text}\n\n📎 ${url}\n\n-# ${response.model} • ${response.latency}ms`;
-        
-        const parts = splitMessage(finalMsg);
-        await statusMsg.edit(parts[0]);
-        
-        for (let i = 1; i < parts.length; i++) {
-            await msg.channel.send(parts[i]);
-        }
-        
-    } catch (e) {
-        await statusMsg.edit(`❌ ${e.message}`);
-    }
-}
-
-// ==================== VOICE STATE UPDATE ====================
-
-client.on(Events.VoiceStateUpdate, (oldState, newState) => {
-    // Handle bot disconnect
-    if (oldState.member?.id === client.user?.id && !newState.channelId) {
-        leaveVoiceChannel(oldState.guild.id);
-        console.log(`🔊 Disconnected from voice in ${oldState.guild.name}`);
-    }
-    
-    // Auto-leave if alone in voice channel
-    if (oldState.channelId && !newState.channelId) {
-        const connection = voiceConnections.get(oldState.guild.id);
-        if (connection && connection.joinConfig.channelId === oldState.channelId) {
-            const channel = oldState.guild.channels.cache.get(oldState.channelId);
-            if (channel) {
-                const members = channel.members.filter(m => !m.user.bot);
-                if (members.size === 0) {
-                    console.log(`🔊 Auto-leaving empty voice channel in ${oldState.guild.name}`);
-                    setTimeout(() => {
-                        const ch = oldState.guild.channels.cache.get(oldState.channelId);
-                        if (ch) {
-                            const currentMembers = ch.members.filter(m => !m.user.bot);
-                            if (currentMembers.size === 0) {
-                                leaveVoiceChannel(oldState.guild.id);
-                            }
+                        },
+                        {
+                            name: '📄 File & Dokumen',
+                            value: '`.read` + upload file - Baca dokumen\n`.read <url>` - Baca dari URL\n`.analyze` + upload - Analisis file/gambar\nSupport: PDF, Word, Excel, TXT, Code',
+                            inline: false
+                        },
+                        {
+                            name: '🖼️ Gambar',
+                            value: '`@Aria` + upload gambar - Analisis gambar\n`.analyze` + upload gambar - Analisis detail',
+                            inline: false
+                        },
+                        {
+                            name: '🔗 URL & Web',
+                            value: '`@Aria <url>` - Auto baca URL\n`<url> + pertanyaan` - Auto baca & jawab\nGitHub, docs, artikel otomatis dibaca',
+                            inline: false
+                        },
+                        {
+                            name: '🔊 Voice',
+                            value: '`.join` - Join voice channel\n`.leave` - Leave voice\n`.speak <text>` - Text to speech\n`.stop` - Stop audio',
+                            inline: false
+                        },
+                        {
+                            name: '⚙️ Settings (Admin)',
+                            value: '`.settings` - Panel pengaturan\n`.manage` - API Manager\n`.status` - Status bot',
+                            inline: false
                         }
-                    }, CONFIG.voiceInactivityTimeout || 60000);
-                }
-            }
+                    )
+                    .setFooter({ text: 'Aria AI Bot v3.0 • Complete Edition' })
+                    .setTimestamp();
+                await msg.reply({ embeds: [helpEmbed] });
+                break;
+
+            case 'ping':
+                const latency = Date.now() - msg.createdTimestamp;
+                const wsLatency = client.ws.ping;
+                await msg.reply(`🏓 Pong!\n• Latency: ${latency}ms\n• WebSocket: ${wsLatency}ms`);
+                break;
+
+            default:
+                // Unknown command - ignore silently
+                break;
         }
+    } catch (e) {
+        console.error('Command error:', e);
+        msg.reply(`❌ Error: ${e.message}`).catch(() => {});
     }
 });
 
-// ==================== READY EVENT ====================
+// ==================== READY ====================
 
-client.once(Events.ClientReady, async () => {
-    console.log('═'.repeat(50));
-    console.log(`✅ Bot ready: ${client.user.tag}`);
-    console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
-    console.log(`👥 Watching ${client.users.cache.size} users`);
-    console.log('═'.repeat(50));
-    
-    // Set rotating activity
-    const activities = [
-        { name: '.help untuk bantuan', type: ActivityType.Playing },
-        { name: 'AI conversations', type: ActivityType.Listening },
-        { name: `${client.guilds.cache.size} servers`, type: ActivityType.Watching },
-        { name: 'your questions', type: ActivityType.Listening }
-    ];
-    
-    let activityIndex = 0;
-    client.user.setActivity(activities[0].name, { type: activities[0].type });
-    
-    setInterval(() => {
-        activityIndex = (activityIndex + 1) % activities.length;
-        client.user.setActivity(activities[activityIndex].name, { type: activities[activityIndex].type });
-    }, 30000);
-    
-    // Initialize manager
-    await manager.initialize();
-    
-    // Ensure temp directory
+client.once(Events.ClientReady, () => {
+    console.log('\n' + '='.repeat(50));
+    console.log(`🤖 ${client.user.tag} online!`);
+    console.log(`📡 ${client.guilds.cache.size} servers`);
+    console.log(`📦 v3.0.0 - Complete Edition`);
+    console.log('='.repeat(50));
+    console.log('Features:');
+    console.log(`  ✅ AI Chat (Multi-provider)`);
+    console.log(`  ✅ Voice TTS`);
+    console.log(`  ✅ Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? 'Enabled' : 'Disabled'}`);
+    console.log(`  ✅ URL Reading`);
+    console.log(`  ✅ File Reading (PDF, Word, Excel, Code)`);
+    console.log(`  ✅ Image Analysis: ${CONFIG.geminiApiKey ? 'Enabled' : 'Disabled'}`);
+    console.log('='.repeat(50));
+    console.log(`🔗 Redis: ${manager.connected ? '✅ Connected' : '❌ Using ENV fallback'}`);
+    console.log(`🔍 Serper: ${CONFIG.serperApiKey ? '✅' : '❌'}`);
+    console.log(`🔍 Tavily: ${CONFIG.tavilyApiKey ? '✅' : '❌'}`);
+    console.log(`🧠 Gemini: ${CONFIG.geminiApiKey ? '✅' : '❌'}`);
+    console.log('='.repeat(50) + '\n');
+
+    client.user.setActivity(`.help | AI Assistant`, { type: ActivityType.Listening });
     ensureTempDir();
-    
-    // Log configuration
-    console.log('\n📋 Configuration:');
-    console.log(`   • Prefix: ${CONFIG.prefix}`);
-    console.log(`   • AI Providers: ${Object.keys(AI_PROVIDERS).join(', ')}`);
-    console.log(`   • TTS Voices: ${TTS_VOICES.length}`);
-    console.log(`   • Search: ${CONFIG.tavilyApiKey ? 'Tavily ✓' : 'Tavily ✗'} ${CONFIG.serperApiKey ? 'Serper ✓' : 'Serper ✗'}`);
-    console.log(`   • Gemini: ${CONFIG.geminiApiKey ? '✓' : '✗'}`);
-    console.log(`   • Groq: ${CONFIG.groqApiKey ? '✓' : '✗'}`);
-    console.log('═'.repeat(50));
 });
 
 // ==================== ERROR HANDLING ====================
 
-client.on(Events.Error, error => {
-    console.error('❌ Client Error:', error);
+process.on('unhandledRejection', (e) => {
+    console.error('Unhandled Rejection:', e);
 });
 
-client.on(Events.Warn, warn => {
-    console.warn('⚠️ Client Warning:', warn);
+process.on('uncaughtException', (e) => {
+    console.error('Uncaught Exception:', e);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-});
-
-process.on('uncaughtException', error => {
-    console.error('❌ Uncaught Exception:', error);
-    // Don't exit, try to recover
-});
-
-// Graceful shutdown
-const shutdown = async (signal) => {
-    console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
-    
-    // Leave all voice channels
-    for (const [guildId] of voiceConnections) {
-        try {
-            await leaveVoiceChannel(guildId);
-        } catch {}
-    }
-    
-    // Cleanup temp files
-    try {
-        if (fs.existsSync(CONFIG.tempPath)) {
-            const files = fs.readdirSync(CONFIG.tempPath);
-            for (const file of files) {
-                try {
-                    fs.unlinkSync(path.join(CONFIG.tempPath, file));
-                } catch {}
-            }
-        }
-    } catch {}
-    
-    // Close Redis connection
-    if (manager.redis) {
-        try {
-            await manager.redis.quit();
-        } catch {}
-    }
-    
-    // Destroy client
+process.on('SIGTERM', () => {
+    console.log('Shutting down gracefully...');
+    voiceConnections.forEach((c) => c.destroy());
     client.destroy();
-    
-    console.log('👋 Goodbye!');
     process.exit(0);
-};
+});
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => {
+    console.log('Received SIGINT, shutting down...');
+    voiceConnections.forEach((c) => c.destroy());
+    client.destroy();
+    process.exit(0);
+});
 
-// ==================== LOGIN ====================
+// ==================== START BOT ====================
 
 if (!CONFIG.token) {
-    console.error('❌ DISCORD_TOKEN tidak ditemukan di environment variables!');
-    console.error('   Pastikan file .env sudah dikonfigurasi dengan benar.');
+    console.error('❌ DISCORD_TOKEN not set!');
     process.exit(1);
 }
 
-client.login(CONFIG.token).catch(err => {
-    console.error('❌ Gagal login:', err.message);
-    process.exit(1);
-});
+client.login(CONFIG.token);
