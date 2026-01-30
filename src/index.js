@@ -1,6 +1,6 @@
 // ============================================================
-//         DISCORD AI BOT v2.18.0 - FINAL INTEGRATED
-//         DynamicManager + Voice Speech Only + All Providers
+//         DISCORD AI BOT v3.0 - COMPLETE EDITION
+//         All Features: AI, Voice, Search, URL, File, Image
 // ============================================================
 
 const {
@@ -31,6 +31,11 @@ const { createServer } = require('http');
 const https = require('https');
 const fs = require('fs');
 const path = require('path');
+const cheerio = require('cheerio');
+const fetch = require('node-fetch');
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
+const xlsx = require('xlsx');
 
 const DynamicManager = require('./modules/dynamicManager');
 
@@ -42,11 +47,17 @@ const healthServer = createServer((req, res) => {
     const status = {
         status: 'ok',
         bot: client?.user?.tag || 'starting...',
-        version: '2.18.0',
+        version: '3.0.0',
         uptime: Math.floor((Date.now() - startTime) / 1000),
         guilds: client?.guilds?.cache?.size || 0,
-        conversations: conversations?.size || 0,
-        activeVoice: voiceConnections?.size || 0
+        features: {
+            ai: true,
+            voice: true,
+            search: true,
+            urlReading: true,
+            fileReading: true,
+            imageAnalysis: true
+        }
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(status, null, 2));
@@ -74,7 +85,9 @@ const CONFIG = {
     maxConversationAge: 7200000,
     rateLimitWindow: 60000,
     rateLimitMax: 30,
-    voiceInactivityTimeout: 300000
+    voiceInactivityTimeout: 300000,
+    maxFileSize: 10 * 1024 * 1024, // 10MB
+    maxImageSize: 5 * 1024 * 1024  // 5MB
 };
 
 // Initialize Dynamic Manager
@@ -100,143 +113,270 @@ function checkRateLimit(userId) {
 
 // ==================== SEARCH TRIGGERS ====================
 
-const SEARCH_TRIGGERS = {
-    // Berita & Informasi Terkini
-    news: [
-        'berita', 'news', 'kabar', 'terbaru', 'hari ini', 'sekarang',
-        'latest', 'current', 'today', 'recent', 'update', 'breaking',
-        'terkini', 'baru saja', 'barusan', 'kemarin', 'minggu ini',
-        'bulan ini', 'headline', 'info terbaru', 'perkembangan'
-    ],
+const SEARCH_TRIGGERS = [
+    'berita', 'news', 'kabar', 'terbaru', 'hari ini', 'sekarang',
+    'latest', 'current', 'today', 'recent', 'update', 'breaking',
+    'terkini', 'baru saja', 'barusan', 'kemarin', 'minggu ini',
+    '2024', '2025', '2026', '2027', '2028', '2029', '2030',
+    'tahun ini', 'tahun lalu', 'tahun depan', 'kapan', 'jadwal',
+    'harga', 'price', 'kurs', 'nilai tukar', 'saham', 'stock',
+    'crypto', 'bitcoin', 'dollar', 'rupiah', 'biaya', 'tarif',
+    'gaji', 'harga emas', 'ihsg',
+    'cuaca', 'weather', 'hujan', 'gempa', 'banjir', 'suhu',
+    'prakiraan', 'forecast',
+    'siapa', 'who is', 'siapa presiden', 'siapa menteri',
+    'profil', 'biodata', 'umur', 'meninggal',
+    'trending', 'viral', 'populer', 'hits', 'fyp', 'gosip',
+    'heboh', 'ramai', 'hot topic',
+    'skor', 'score', 'hasil pertandingan', 'klasemen',
+    'liga', 'piala dunia', 'final', 'motogp', 'f1',
+    'rilis', 'release', 'launching', 'spesifikasi', 'spec',
+    'review', 'fitur terbaru', 'update software'
+];
 
-    // Waktu & Tanggal
-    temporal: [
-        '2024', '2025', '2026', '2027', '2028', '2029', '2030',
-        'tahun ini', 'tahun lalu', 'tahun depan',
-        'januari', 'februari', 'maret', 'april', 'mei', 'juni',
-        'juli', 'agustus', 'september', 'oktober', 'november', 'desember',
-        'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu',
-        'kapan', 'when', 'jadwal', 'schedule', 'tanggal berapa'
-    ],
+// ==================== URL & FILE DETECTION ====================
 
-    // Harga & Keuangan
-    finance: [
-        'harga', 'price', 'kurs', 'nilai tukar', 'exchange rate',
-        'saham', 'stock', 'crypto', 'bitcoin', 'ethereum',
-        'dollar', 'rupiah', 'euro', 'yen',
-        'investasi', 'trading', 'pasar', 'market',
-        'biaya', 'tarif', 'ongkir', 'ongkos kirim',
-        'gaji', 'salary', 'harga emas', 'gold price', 'ihsg'
-    ],
+function detectURLs(message) {
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const urls = message.match(urlRegex) || [];
+    return urls.filter(url => {
+        const lower = url.toLowerCase();
+        if (lower.match(/\.(jpg|jpeg|png|gif|mp4|mp3|zip|exe)$/i)) {
+            return false;
+        }
+        if (lower.match(/bit\.ly|tinyurl|t\.co/)) {
+            return false;
+        }
+        return true;
+    });
+}
 
-    // Cuaca & Alam
-    weather: [
-        'cuaca', 'weather', 'hujan', 'rain', 'panas', 'cerah',
-        'badai', 'storm', 'gempa', 'earthquake', 'banjir', 'flood',
-        'suhu', 'temperature', 'prakiraan', 'forecast',
-        'tsunami', 'longsor', 'erupsi', 'gunung meletus'
-    ],
+function shouldAutoFetch(url) {
+    const domain = new URL(url).hostname;
+    const autoFetchDomains = [
+        'github.com', 'stackoverflow.com', 'medium.com', 'dev.to',
+        'docs.google.com', 'ai.google.dev', 'openai.com',
+        'discord.js.org', 'npmjs.com', 'wikipedia.org'
+    ];
+    return autoFetchDomains.some(d => domain.includes(d));
+}
 
-    // Orang & Tokoh
-    people: [
-        'siapa', 'who is', 'siapa presiden', 'siapa menteri',
-        'siapa gubernur', 'siapa walikota', 'siapa bupati',
-        'siapa ceo', 'siapa pemilik', 'siapa pendiri',
-        'profil', 'profile', 'biodata', 'biography',
-        'umur', 'age', 'lahir', 'born', 'meninggal', 'died'
-    ],
+function isMediaFile(url) {
+    return /\.(jpg|jpeg|png|gif|mp4|mp3|avi|mov|zip|rar)$/i.test(url);
+}
 
-    // Trending & Viral
-    trending: [
-        'trending', 'viral', 'populer', 'popular', 'hits',
-        'fyp', 'tiktok', 'instagram', 'twitter', 'x.com',
-        'meme', 'gosip', 'rumor', 'kontroversi', 'skandal',
-        'heboh', 'ramai', 'diperbincangkan', 'hot topic'
-    ],
+function isShortener(url) {
+    const shorteners = ['bit.ly', 'tinyurl.com', 't.co', 'goo.gl', 'short.link'];
+    return shorteners.some(s => url.includes(s));
+}
 
-    // Olahraga
-    sports: [
-        'skor', 'score', 'hasil pertandingan', 'match result',
-        'klasemen', 'standing', 'liga', 'league',
-        'piala dunia', 'world cup', 'euro', 'asian games',
-        'olimpiade', 'olympics', 'final', 'semifinal',
-        'bola', 'football', 'soccer', 'basket', 'badminton',
-        'f1', 'motogp', 'tinju', 'boxing', 'ufc', 'mma'
-    ],
+// ==================== WEB SCRAPING FUNCTIONS ====================
 
-    // Teknologi & Produk
-    tech: [
-        'rilis', 'release', 'launching', 'peluncuran',
-        'iphone', 'samsung', 'android', 'ios', 'windows',
-        'spesifikasi', 'spec', 'fitur terbaru', 'new feature',
-        'update software', 'patch', 'versi terbaru', 'latest version',
-        'review', 'ulasan', 'benchmark', 'perbandingan'
-    ],
+async function fetchURLClean(url) {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9'
+            },
+            timeout: 15000
+        });
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        
+        // Remove unwanted elements
+        $('script').remove();
+        $('style').remove();
+        $('iframe').remove();
+        $('noscript').remove();
+        $('nav').remove();
+        $('header').remove();
+        $('footer').remove();
+        $('aside').remove();
+        $('.ad, .ads, .advertisement').remove();
+        $('.banner, .promo, .promotion').remove();
+        $('.sidebar, .widget, .related').remove();
+        $('.comments, .comment-section').remove();
+        $('.share, .social-share').remove();
+        $('#ad, #ads, #advertisement').remove();
+        $('[class*="advertisement"]').remove();
+        $('[id*="google_ads"]').remove();
+        $('img[width="1"]').remove();
+        $('img[height="1"]').remove();
+        
+        // Extract main content
+        let mainContent = '';
+        
+        if ($('article').length) {
+            mainContent = $('article').first().text();
+        } else if ($('main').length) {
+            mainContent = $('main').first().text();
+        } else if ($('.post-content, .entry-content, .article-body, .content').length) {
+            mainContent = $('.post-content, .entry-content, .article-body, .content').first().text();
+        } else {
+            mainContent = $('body').text();
+        }
+        
+        // Clean whitespace
+        mainContent = mainContent.replace(/\s+/g, ' ').replace(/\n\s*\n/g, '\n').trim();
+        
+        return mainContent.slice(0, 8000);
+        
+    } catch (error) {
+        console.error('Error fetching URL:', url, error.message);
+        throw error;
+    }
+}
 
-    // Hiburan
-    entertainment: [
-        'film terbaru', 'movie', 'drama', 'series', 'anime',
-        'lagu terbaru', 'album', 'konser', 'concert', 'tour',
-        'netflix', 'disney', 'youtube', 'spotify',
-        'box office', 'rating', 'trailer', 'teaser',
-        'artis', 'celebrity', 'idol', 'kpop', 'jpop'
-    ],
+async function readGitHubFile(url) {
+    try {
+        const rawUrl = url.replace('github.com', 'raw.githubusercontent.com').replace('/blob/', '/');
+        const response = await fetch(rawUrl);
+        if (!response.ok) throw new Error('File not found');
+        return await response.text();
+    } catch (error) {
+        throw new Error('Failed to read GitHub file');
+    }
+}
 
-    // Lokasi & Tempat
-    location: [
-        'dimana', 'where', 'lokasi', 'location', 'alamat', 'address',
-        'buka jam', 'jam operasional', 'opening hours',
-        'tutup jam', 'closing time', 'libur', 'holiday',
-        'rute', 'route', 'jarak', 'distance', 'cara ke'
-    ],
+// ==================== FILE READING FUNCTIONS ====================
 
-    // Kesehatan
-    health: [
-        'gejala', 'symptom', 'obat', 'medicine', 'penyakit', 'disease',
-        'rumah sakit', 'hospital', 'dokter', 'doctor',
-        'vaksin', 'vaccine', 'covid', 'virus', 'pandemi',
-        'efek samping', 'side effect'
-    ],
+async function readTextFile(buffer) {
+    return buffer.toString('utf-8');
+}
 
-    // Verifikasi Fakta
-    factCheck: [
-        'benarkah', 'is it true', 'apakah benar', 'fakta atau hoax',
-        'hoax', 'hoaks', 'fake news', 'cek fakta', 'fact check',
-        'klarifikasi', 'clarification', 'bukti', 'evidence',
-        'sumber', 'source', 'referensi', 'reference'
-    ],
+async function readPDFFile(buffer) {
+    try {
+        const data = await pdfParse(buffer);
+        return data.text;
+    } catch (error) {
+        throw new Error('Failed to read PDF');
+    }
+}
 
-    // Event & Acara
-    events: [
-        'event', 'acara', 'festival', 'pameran', 'exhibition',
-        'seminar', 'webinar', 'workshop', 'konferensi', 'conference',
-        'promo', 'diskon', 'sale', 'flash sale', 'harbolnas',
-        'tiket', 'ticket', 'registrasi', 'daftar'
-    ],
+async function readDOCXFile(buffer) {
+    try {
+        const result = await mammoth.extractRawText({ buffer });
+        return result.value;
+    } catch (error) {
+        throw new Error('Failed to read DOCX');
+    }
+}
 
-    // Pendidikan
-    education: [
-        'passing grade', 'nilai minimum', 'akreditasi',
-        'beasiswa', 'scholarship', 'pendaftaran', 'registration',
-        'snbp', 'snbt', 'utbk', 'sbmptn', 'ptn', 'pts',
-        'kurikulum', 'curriculum', 'ujian', 'exam'
-    ],
+async function readExcelFile(buffer) {
+    try {
+        const workbook = xlsx.read(buffer, { type: 'buffer' });
+        let text = '';
+        workbook.SheetNames.forEach(sheetName => {
+            const sheet = workbook.Sheets[sheetName];
+            text += `Sheet: ${sheetName}\n`;
+            text += xlsx.utils.sheet_to_txt(sheet) + '\n\n';
+        });
+        return text;
+    } catch (error) {
+        throw new Error('Failed to read Excel file');
+    }
+}
 
-    // Pemerintahan & Regulasi
-    government: [
-        'peraturan', 'regulation', 'undang-undang', 'law',
-        'kebijakan', 'policy', 'keputusan', 'decision',
-        'syarat', 'requirement', 'persyaratan', 'prosedur',
-        'pajak', 'tax', 'bpjs', 'ktp', 'sim', 'paspor'
-    ]
-};
+async function readFile(attachment) {
+    const response = await fetch(attachment.url);
+    const buffer = await response.buffer();
+    
+    const ext = path.extname(attachment.name).toLowerCase();
+    
+    switch (ext) {
+        case '.txt':
+        case '.js':
+        case '.py':
+        case '.json':
+        case '.md':
+        case '.yml':
+        case '.yaml':
+        case '.xml':
+        case '.html':
+        case '.css':
+        case '.cpp':
+        case '.c':
+        case '.java':
+        case '.ts':
+        case '.tsx':
+        case '.jsx':
+            return await readTextFile(buffer);
+        case '.pdf':
+            return await readPDFFile(buffer);
+        case '.docx':
+        case '.doc':
+            return await readDOCXFile(buffer);
+        case '.xlsx':
+        case '.xls':
+        case '.csv':
+            return await readExcelFile(buffer);
+        default:
+            throw new Error(`Unsupported file type: ${ext}`);
+    }
+}
 
-// ==================== SEARCH FUNCTION ====================
+// ==================== IMAGE ANALYSIS ====================
+
+async function analyzeImage(imageUrl, prompt = '') {
+    const apiKey = await manager.getActiveKey('gemini', CONFIG.geminiApiKey);
+    if (!apiKey) throw new Error('No Gemini API key for image analysis');
+    
+    // Fetch image as base64
+    const imageResponse = await fetch(imageUrl);
+    const buffer = await imageResponse.buffer();
+    const base64 = buffer.toString('base64');
+    
+    const requestBody = {
+        contents: [{
+            parts: [
+                {
+                    inline_data: {
+                        mime_type: imageResponse.headers.get('content-type') || 'image/jpeg',
+                        data: base64
+                    }
+                },
+                {
+                    text: prompt || 'Jelaskan gambar ini dalam Bahasa Indonesia dengan detail.'
+                }
+            ]
+        }],
+        generationConfig: {
+            temperature: 0.7,
+            topP: 0.95,
+            topK: 40,
+            maxOutputTokens: 2048
+        }
+    };
+    
+    const { data, statusCode } = await httpRequest({
+        hostname: 'generativelanguage.googleapis.com',
+        path: `/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    }, JSON.stringify(requestBody));
+    
+    if (statusCode !== 200) {
+        const result = JSON.parse(data);
+        throw new Error(result.error?.message || `HTTP ${statusCode}`);
+    }
+    
+    const result = JSON.parse(data);
+    if (result.candidates?.[0]?.content?.parts?.[0]?.text) {
+        return result.candidates[0].content.parts[0].text;
+    }
+    throw new Error('No response from Gemini Vision');
+}
+
+// ==================== SEARCH FUNCTIONS ====================
 
 function shouldSearch(message) {
     const lower = message.toLowerCase();
-    const allTriggers = Object.values(SEARCH_TRIGGERS).flat();
-    return allTriggers.some(trigger => lower.includes(trigger));
+    return SEARCH_TRIGGERS.some(trigger => lower.includes(trigger));
 }
 
 async function searchSerper(query) {
@@ -253,8 +393,16 @@ async function searchSerper(query) {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try { resolve(res.statusCode === 200 ? JSON.parse(data) : null); }
-                catch { resolve(null); }
+                try { 
+                    if (res.statusCode === 200) {
+                        const result = JSON.parse(data);
+                        // Extract URLs from organic results
+                        const urls = result.organic?.slice(0, 3).map(r => r.link).filter(Boolean) || [];
+                        resolve({ ...result, urls });
+                    } else {
+                        resolve(null);
+                    }
+                } catch { resolve(null); }
             });
         });
         req.on('error', () => resolve(null));
@@ -267,7 +415,12 @@ async function searchSerper(query) {
 async function searchTavily(query) {
     if (!CONFIG.tavilyApiKey) return null;
     return new Promise((resolve) => {
-        const postData = JSON.stringify({ api_key: CONFIG.tavilyApiKey, query, include_answer: true, max_results: 5 });
+        const postData = JSON.stringify({ 
+            api_key: CONFIG.tavilyApiKey, 
+            query, 
+            include_answer: true, 
+            max_results: 5 
+        });
         const req = https.request({
             hostname: 'api.tavily.com',
             path: '/search',
@@ -278,8 +431,16 @@ async function searchTavily(query) {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
-                try { resolve(res.statusCode === 200 ? JSON.parse(data) : null); }
-                catch { resolve(null); }
+                try { 
+                    if (res.statusCode === 200) {
+                        const result = JSON.parse(data);
+                        // Extract URLs from results
+                        const urls = result.results?.slice(0, 3).map(r => r.url).filter(Boolean) || [];
+                        resolve({ ...result, urls });
+                    } else {
+                        resolve(null);
+                    }
+                } catch { resolve(null); }
             });
         });
         req.on('error', () => resolve(null));
@@ -291,15 +452,16 @@ async function searchTavily(query) {
 
 async function performSearch(query, provider = 'auto') {
     const now = new Date().toLocaleDateString('id-ID', { dateStyle: 'full', timeZone: 'Asia/Jakarta' });
-    let result = { timestamp: now, answer: null, facts: [], source: null };
+    let result = { timestamp: now, answer: null, facts: [], urls: [], source: null };
     
     if (provider === 'serper' || provider === 'auto') {
         const serper = await searchSerper(query);
         if (serper) {
             result.source = 'serper';
+            result.urls = serper.urls || [];
             if (serper.answerBox) result.answer = serper.answerBox.answer || serper.answerBox.snippet;
             if (serper.organic) result.facts = serper.organic.slice(0, 3).map(o => o.snippet).filter(Boolean);
-            if (result.answer || result.facts.length) return result;
+            if (result.answer || result.facts.length || result.urls.length) return result;
         }
     }
     
@@ -307,57 +469,124 @@ async function performSearch(query, provider = 'auto') {
         const tavily = await searchTavily(query);
         if (tavily) {
             result.source = 'tavily';
+            result.urls = tavily.urls || [];
             if (tavily.answer) result.answer = tavily.answer;
             if (tavily.results) result.facts = tavily.results.slice(0, 3).map(r => r.content?.slice(0, 200)).filter(Boolean);
-            if (result.answer || result.facts.length) return result;
+            if (result.answer || result.facts.length || result.urls.length) return result;
         }
     }
     
     return null;
 }
 
-function formatSearchContext(data) {
-    if (!data) return '';
-    let ctx = `\n\n[INFO TERKINI - ${data.timestamp}]\n`;
-    if (data.answer) ctx += `Jawaban: ${data.answer}\n`;
-    if (data.facts.length) ctx += `Fakta:\n${data.facts.map(f => `- ${f}`).join('\n')}\n`;
-    ctx += `\nJawab natural tanpa sebut sumber.`;
-    return ctx;
+// ==================== REASONING FUNCTIONS ====================
+
+function parseThinkingResponse(text) {
+    const thinkingPatterns = [
+        /\[THINKING\](.*?)\[\/THINKING\]/s,
+        /<thinking>(.*?)<\/thinking>/s,
+        /💭 Thinking:(.*?)(?=\n\n[^💭])/s
+    ];
+    
+    let thinking = '';
+    let answer = text;
+    
+    for (const pattern of thinkingPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            thinking = match[1].trim();
+            answer = text.replace(match[0], '').trim();
+            break;
+        }
+    }
+    
+    return { thinking, answer };
+}
+
+function buildContextPrompt(query, contents, isThinking = true) {
+    const timestamp = new Date().toLocaleDateString('id-ID', { 
+        dateStyle: 'full', 
+        timeZone: 'Asia/Jakarta' 
+    });
+    
+    let prompt = `${SYSTEM_PROMPT}
+
+[CURRENT DATE: ${timestamp}]
+
+[INSTRUCTION]
+You will receive content from multiple sources. Analyze them carefully and answer the user's question in Bahasa Indonesia.
+`;
+
+    if (isThinking) {
+        prompt += `
+THINK STEP BY STEP:
+1. Identify key information from each source
+2. Cross-reference facts across sources
+3. Determine most reliable information
+4. Formulate comprehensive answer
+
+Format your response as:
+[THINKING]
+Your step-by-step reasoning here...
+[/THINKING]
+
+[ANSWER]
+Your final answer here...
+[/ANSWER]
+`;
+    }
+
+    prompt += '\n[SOURCES]\n';
+    
+    contents.forEach((c, i) => {
+        prompt += `\n--- Source ${i + 1}: ${c.url || c.name || 'Unknown'} ---\n${c.content || c.text}\n`;
+    });
+    
+    prompt += `\n[USER QUESTION]\n${query}`;
+    
+    return prompt;
 }
 
 // ==================== SYSTEM PROMPT ====================
 
-const SYSTEM_PROMPT = `Kamu adalah Toing, asisten AI premium yang elegan, cerdas, dan profesional.
+const SYSTEM_PROMPT = `Kamu adalah Aria, asisten AI premium yang elegan, cerdas, dan profesional.
 
 ## IDENTITAS
-- Nama: Toing
+- Nama: Aria
 - Kepribadian: Hangat, cerdas, humoris namun tetap profesional
 - Gaya bicara: Santai tapi berkelas, seperti teman pintar yang menyenangkan
+
+## KEMAMPUAN KHUSUS
+- Bisa membaca dan analisis URL/website
+- Bisa membaca file dokumen (PDF, Word, Excel, dll)
+- Bisa analisis gambar dan foto
+- Bisa search internet untuk informasi terkini
+- Bisa generate voice/TTS
 
 ## PRINSIP UTAMA
 
 ### 1. KEJUJURAN ABSOLUT
 - JANGAN PERNAH mengarang fakta atau informasi
-- Jika tidak tahu, katakan dengan jujur: "Saya tidak memiliki informasi akurat tentang ini"
+- Jika tidak tahu, katakan dengan jujur
 - Bedakan dengan jelas antara FAKTA, OPINI, dan SPEKULASI
 - Sebutkan jika informasi mungkin sudah tidak update
 
 ### 2. WAWASAN LUAS
 - Berikan jawaban yang mendalam dan komprehensif
-- Sertakan konteks yang relevan untuk memperkaya pemahaman
+- Sertakan konteks yang relevan
 - Hubungkan topik dengan pengetahuan terkait jika membantu
 - Gunakan analogi sederhana untuk menjelaskan konsep kompleks
 
 ### 3. KEJELASAN & STRUKTUR
-- Gunakan format yang rapi (bullet points, numbering) untuk informasi kompleks
+- Gunakan format yang rapi untuk informasi kompleks
 - Prioritaskan informasi paling penting di awal
-- Hindari jargon kecuali diperlukan, jelaskan jika menggunakannya
+- Hindari jargon kecuali diperlukan
 - Sesuaikan panjang jawaban dengan kompleksitas pertanyaan
 
 ### 4. PROFESIONAL TAPI MENYENANGKAN
 - Gunakan bahasa Indonesia yang baik dan natural
 - Boleh sisipkan humor ringan yang relevan
-- Gunakan emoji secukupnya untuk menambah ekspresi 😊
+- Gunakan emoji secukupnya untuk menambah ekspresi
 - Tetap sopan dan respectful dalam semua situasi
 
 ## PANDUAN RESPONS
@@ -367,130 +596,50 @@ const SYSTEM_PROMPT = `Kamu adalah Toing, asisten AI premium yang elegan, cerdas
 - Sertakan sumber atau dasar informasi jika relevan
 - Akui keterbatasan jika topik di luar jangkauan pengetahuan
 
-### Untuk Permintaan Bantuan:
-- Pahami kebutuhan sebenarnya di balik pertanyaan
-- Berikan solusi praktis dan actionable
-- Tawarkan alternatif jika memungkinkan
-
-### Untuk Diskusi & Opini:
-- Sajikan berbagai perspektif secara seimbang
-- Tandai dengan jelas mana yang fakta dan mana opini
-- Hormati perbedaan pandangan
+### Untuk Analisis File/Gambar:
+- Jelaskan dengan detail apa yang dilihat/dibaca
+- Berikan insight yang berguna
+- Tawarkan saran atau rekomendasi jika relevan
 
 ### Untuk Voice Response:
 - Jawab ringkas dalam 2-4 kalimat
 - Langsung ke poin utama
 - Gunakan bahasa yang mudah dipahami saat didengar
 
-## YANG HARUS DIHINDARI
-❌ Mengarang fakta atau statistik
-❌ Berpura-pura tahu hal yang tidak diketahui
-❌ Memberikan informasi medis/hukum/keuangan spesifik tanpa disclaimer
-❌ Respons yang terlalu panjang untuk pertanyaan sederhana
-❌ Bahasa yang kaku atau seperti robot
-
-## CONTOH GAYA RESPONS
-
-Pertanyaan sederhana:
-"Apa itu AI?"
-→ "AI atau Artificial Intelligence adalah teknologi yang memungkinkan mesin untuk 'berpikir' dan belajar seperti manusia. Bayangkan seperti otak digital yang bisa mengenali pola, mengambil keputusan, dan bahkan ngobrol seperti kita sekarang! 🤖"
-
-Pertanyaan kompleks:
-→ Gunakan struktur yang jelas dengan poin-poin
-→ Berikan penjelasan bertahap
-→ Akhiri dengan ringkasan atau kesimpulan
-
-Tidak tahu jawabannya:
-→ "Hmm, untuk pertanyaan spesifik ini saya tidak punya informasi yang cukup akurat. Daripada menebak-nebak, saya sarankan untuk mengecek sumber resmi atau terpercaya ya! 😊"
-
 Ingat: Lebih baik jujur tidak tahu daripada memberikan informasi yang salah.`;
-
-// ==================== POLLINATIONS MODELS (SHARED) ====================
+// ==================== AI MODELS CONFIGURATION ====================
 
 const POLLINATIONS_MODELS = [
-    // OpenAI Models
     { id: 'openai', name: 'OpenAI GPT', version: 'GPT-5-nano' },
     { id: 'openai-fast', name: 'OpenAI Fast', version: 'GPT-5-fast' },
     { id: 'openai-large', name: 'OpenAI Large', version: 'GPT-5-large' },
-    { id: 'openai-reasoning', name: 'OpenAI Reasoning', version: 'o3-mini' },
-    { id: 'openai-audio', name: 'OpenAI Audio', version: 'GPT-4o-audio' },
-    // Claude Models
     { id: 'claude', name: 'Claude', version: 'Claude-3.5' },
     { id: 'claude-fast', name: 'Claude Fast', version: 'Claude-fast' },
-    { id: 'claude-large', name: 'Claude Large', version: 'Claude-large' },
-    { id: 'claude-haiku', name: 'Claude Haiku', version: 'Haiku-4.5' },
-    { id: 'claude-sonnet', name: 'Claude Sonnet', version: 'Sonnet-4.5' },
-    { id: 'claude-opus', name: 'Claude Opus', version: 'Opus-4.5' },
-    // Gemini Models
     { id: 'gemini', name: 'Gemini', version: 'Gemini-3-Flash' },
     { id: 'gemini-fast', name: 'Gemini Fast', version: 'Gemini-fast' },
-    { id: 'gemini-large', name: 'Gemini Large', version: 'Gemini-large' },
-    { id: 'gemini-search', name: 'Gemini Search', version: 'Gemini-search' },
-    { id: 'gemini-legacy', name: 'Gemini Legacy', version: 'Gemini-2.5' },
-    { id: 'gemini-thinking', name: 'Gemini Thinking', version: 'Thinking' },
-    // DeepSeek Models
     { id: 'deepseek', name: 'DeepSeek', version: 'V3' },
-    { id: 'deepseek-v3', name: 'DeepSeek V3', version: 'V3-latest' },
     { id: 'deepseek-r1', name: 'DeepSeek R1', version: 'R1' },
-    { id: 'deepseek-reasoning', name: 'DeepSeek Reasoning', version: 'R1-Reasoner' },
-    // Qwen Models
     { id: 'qwen', name: 'Qwen', version: 'Qwen3' },
-    { id: 'qwen-coder', name: 'Qwen Coder', version: 'Qwen3-Coder' },
-    // Llama Models
     { id: 'llama', name: 'Llama', version: 'Llama-3.3' },
-    { id: 'llamalight', name: 'Llama Light', version: 'Llama-70B' },
-    // Mistral Models
-    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' },
-    { id: 'mistral-small', name: 'Mistral Small', version: 'Mistral-3.2' },
-    { id: 'mistral-large', name: 'Mistral Large', version: 'Mistral-Large' },
-    // Perplexity Models
-    { id: 'perplexity-fast', name: 'Perplexity Fast', version: 'Sonar' },
-    { id: 'perplexity-reasoning', name: 'Perplexity Reasoning', version: 'Sonar-Pro' },
-    // Chinese AI Models
-    { id: 'kimi', name: 'Kimi', version: 'Kimi-K2.5' },
-    { id: 'kimi-large', name: 'Kimi Large', version: 'Kimi-large' },
-    { id: 'kimi-reasoning', name: 'Kimi Reasoning', version: 'Kimi-reasoning' },
-    { id: 'glm', name: 'GLM', version: 'GLM-4.7' },
-    { id: 'minimax', name: 'MiniMax', version: 'M2.1' },
-    // Grok Models
-    { id: 'grok', name: 'Grok', version: 'Grok-4' },
-    { id: 'grok-fast', name: 'Grok Fast', version: 'Grok-fast' },
-    // Amazon Nova
-    { id: 'nova-fast', name: 'Nova Fast', version: 'Amazon-Nova' },
-    // Microsoft Phi
-    { id: 'phi', name: 'Phi', version: 'Phi-4' },
-    // Search/Tool Models
-    { id: 'searchgpt', name: 'SearchGPT', version: 'v1' },
-    // Creative/Art Models
-    { id: 'midijourney', name: 'Midijourney', version: 'v1' },
-    { id: 'unity', name: 'Unity', version: 'v1' },
-    { id: 'rtist', name: 'Rtist', version: 'v1' },
-    // Special/Character Models
-    { id: 'evil', name: 'Evil Mode', version: 'Uncensored' },
-    { id: 'p1', name: 'P1', version: 'v1' },
-    { id: 'hormoz', name: 'Hormoz', version: 'v1' },
-    { id: 'sur', name: 'Sur', version: 'v1' },
-    { id: 'bidara', name: 'Bidara', version: 'v1' },
-    // Education/Utility Models
-    { id: 'chickytutor', name: 'ChickyTutor', version: 'Education' },
-    { id: 'nomnom', name: 'NomNom', version: 'Food' }
+    { id: 'mistral', name: 'Mistral', version: 'Mistral-Small' }
 ];
-
-// ==================== AI PROVIDERS ====================
 
 const AI_PROVIDERS = {
     gemini: {
         name: 'Google Gemini',
         models: [
+            { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro Preview', version: '3.0-pro' },
+            { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash Preview', version: '3.0-flash' },
             { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', version: '2.5-pro' },
             { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', version: '2.5-flash' },
             { id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite', version: '2.5-lite' },
             { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', version: '2.0-flash' },
             { id: 'gemini-2.0-flash-lite', name: 'Gemini 2.0 Flash Lite', version: '2.0-lite' },
-            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro', version: '1.5-pro' },
-            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash', version: '1.5-flash' },
-            { id: 'gemini-2.5-flash-preview-05-20', name: 'Gemini 2.5 Flash Preview', version: '2.5-preview' },
-            { id: 'gemini-2.5-pro-preview-05-06', name: 'Gemini 2.5 Pro Preview', version: '2.5-pro-preview' }
+            { id: 'gemini-flash-latest', name: 'Gemini Flash Latest', version: 'latest' },
+            { id: 'gemini-pro-latest', name: 'Gemini Pro Latest', version: 'latest' },
+            { id: 'gemma-3-27b-it', name: 'Gemma 3 27B', version: '27B' },
+            { id: 'gemma-3-12b-it', name: 'Gemma 3 12B', version: '12B' },
+            { id: 'deep-research-pro-preview-12-2025', name: 'Deep Research Pro', version: 'research' }
         ]
     },
 
@@ -499,41 +648,19 @@ const AI_PROVIDERS = {
         models: [
             { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B', version: 'v3.3' },
             { id: 'llama-3.1-8b-instant', name: 'Llama 3.1 8B', version: 'v3.1' },
-            { id: 'openai/gpt-oss-120b', name: 'GPT OSS 120B', version: '120B' },
-            { id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B', version: '20B' },
             { id: 'mixtral-8x7b-32768', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' },
-            { id: 'meta-llama/llama-4-maverick-17b-128e-instruct', name: 'Llama 4 Maverick', version: '17B-128E' },
-            { id: 'meta-llama/llama-4-scout-17b-16e-instruct', name: 'Llama 4 Scout', version: '17B-16E' },
-            { id: 'moonshotai/kimi-k2-instruct-0905', name: 'Kimi K2', version: 'K2' },
-            { id: 'qwen/qwen-3-32b', name: 'Qwen 3 32B', version: '32B' },
-            { id: 'llama-3-groq-70b-tool-use', name: 'Llama 3 70B Tool', version: '70B-tool' },
-            { id: 'llama-3-groq-8b-tool-use', name: 'Llama 3 8B Tool', version: '8B-tool' }
+            { id: 'gemma2-9b-it', name: 'Gemma 2 9B', version: '9B' }
         ]
     },
 
     openrouter: {
         name: 'OpenRouter',
         models: [
-            { id: 'arcee-ai/trinity-large-preview:free', name: 'Trinity Large Preview (free)', version: 'Large' },
-            { id: 'upstage/solar-pro-3:free', name: 'Solar Pro 3 (free)', version: 'Pro-3' },
-            { id: 'liquid/lfm-2.5-1.2b-thinking:free', name: 'LFM2.5-1.2B-Thinking (free)', version: '1.2B' },
-            { id: 'liquid/lfm-2.5-1.2b-instruct:free', name: 'LFM2.5-1.2B-Instruct (free)', version: '1.2B' },
-            { id: 'allenai/molmo-2-8b:free', name: 'Molmo2 8B (free)', version: '8B' },
-            { id: 'tngtech/deepseek-r1t-chimera:free', name: 'R1T Chimera (free)', version: 'R1T' },
-            { id: 'z-ai/glm-4.5-air:free', name: 'GLM 4.5 Air (free)', version: '4.5-Air' },
-            { id: 'cognitivecomputations/dolphin-mistral-24b-venice-edition:free', name: 'Uncensored (free)', version: '24B' },
-            { id: 'google/gemma-3n-e2b-it:free', name: 'Gemma 3n 2B (free)', version: '3n-2B' },
-            { id: 'tngtech/deepseek-r1t2-chimera:free', name: 'DeepSeek R1T2 Chimera (free)', version: 'R1T2' },
-            { id: 'deepseek/deepseek-r1-0528:free', name: 'R1 0528 (free)', version: '0528' },
-            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 3.1 24B (free)', version: '24B' },
             { id: 'google/gemini-2.0-flash-exp:free', name: 'Gemini 2.0 Flash (free)', version: '2.0-flash' },
             { id: 'meta-llama/llama-3.3-70b-instruct:free', name: 'Llama 3.3 70B (free)', version: '70B' },
-            { id: 'meta-llama/llama-3.1-405b-instruct:free', name: 'Llama 3.1 405B (free)', version: '405B' },
+            { id: 'deepseek/deepseek-r1-0528:free', name: 'DeepSeek R1 (free)', version: 'R1' },
             { id: 'qwen/qwen3-coder:free', name: 'Qwen3 Coder (free)', version: 'Coder' },
-            { id: 'moonshotai/kimi-k2:free', name: 'Kimi K2 (free)', version: 'K2' },
-            { id: 'openai/gpt-oss-120b:free', name: 'GPT OSS 120B (free)', version: '120B' },
-            { id: 'nousresearch/hermes-3-llama-3.1-405b:free', name: 'Hermes 3 405B (free)', version: '405B' }
+            { id: 'mistralai/mistral-small-3.1-24b-instruct:free', name: 'Mistral Small 24B (free)', version: '24B' }
         ]
     },
 
@@ -552,15 +679,15 @@ const AI_PROVIDERS = {
     huggingface: {
         name: 'HuggingFace',
         models: [
-            { id: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '3.1-8B' },
-            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '3.3-70B' },
-            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B-beta' },
-            { id: 'mistralai/Mistral-7B-Instruct-v0.1', name: 'Mistral 7B', version: '7B-v0.1' },
+            { id: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', version: '70B' },
+            { id: 'meta-llama/Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B', version: '8B' },
+            { id: 'meta-llama/Llama-3.2-3B-Instruct', name: 'Llama 3.2 3B', version: '3B' },
+            { id: 'mistralai/Mistral-7B-Instruct-v0.3', name: 'Mistral 7B v0.3', version: '7B' },
             { id: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B', version: '8x7B' },
-            { id: 'google/flan-t5-large', name: 'Flan T5 Large', version: 'T5-large' },
-            { id: 'EleutherAI/gpt-j-6B', name: 'GPT-J 6B', version: '6B' },
-            { id: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B', version: '2.5-72B' },
-            { id: 'google/gemma-2-27b-it', name: 'Gemma 2 27B', version: '2-27B' }
+            { id: 'microsoft/Phi-3-mini-4k-instruct', name: 'Phi 3 Mini', version: '3.8B' },
+            { id: 'google/gemma-2-9b-it', name: 'Gemma 2 9B', version: '9B' },
+            { id: 'Qwen/Qwen2.5-7B-Instruct', name: 'Qwen 2.5 7B', version: '7B' },
+            { id: 'HuggingFaceH4/zephyr-7b-beta', name: 'Zephyr 7B', version: '7B' }
         ]
     }
 };
@@ -576,8 +703,8 @@ const TTS_VOICES = [
 // ==================== DEFAULT SETTINGS ====================
 
 const DEFAULT_SETTINGS = {
-    aiProvider: 'groq',
-    aiModel: 'llama-3.3-70b-versatile',
+    aiProvider: 'gemini',
+    aiModel: 'gemini-2.5-flash',
     ttsVoice: 'id-ID-GadisNeural',
     searchEnabled: true,
     searchProvider: 'auto',
@@ -676,6 +803,22 @@ function splitMessage(text, maxLength = 1900) {
     return parts;
 }
 
+// ==================== HTTP HELPER ====================
+
+function httpRequest(options, body) {
+    return new Promise((resolve, reject) => {
+        const req = https.request(options, res => {
+            let data = '';
+            res.on('data', c => data += c);
+            res.on('end', () => resolve({ data, statusCode: res.statusCode }));
+        });
+        req.on('error', reject);
+        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Timeout')); });
+        if (body) req.write(body);
+        req.end();
+    });
+}
+
 // ==================== TTS FUNCTIONS ====================
 
 function cleanTextForTTS(text) {
@@ -696,185 +839,21 @@ function cleanTextForTTS(text) {
         .trim();
 }
 
-function splitTextForTTS(text, maxLength = 900) {
-    const clean = cleanTextForTTS(text);
-    if (!clean || clean.length < 10) return [];
-    
-    if (clean.length <= maxLength) return [clean];
-    
-    const chunks = [];
-    let remaining = clean;
-    
-    while (remaining.length > 0) {
-        if (remaining.length <= maxLength) {
-            if (remaining.trim().length >= 10) chunks.push(remaining.trim());
-            break;
-        }
-        
-        let splitIndex = -1;
-        const searchArea = remaining.slice(0, maxLength);
-        
-        // Cari titik, tanda tanya, atau tanda seru
-        const lastPeriod = searchArea.lastIndexOf('. ');
-        const lastQuestion = searchArea.lastIndexOf('? ');
-        const lastExclaim = searchArea.lastIndexOf('! ');
-        splitIndex = Math.max(lastPeriod, lastQuestion, lastExclaim);
-        
-        if (splitIndex > 0 && splitIndex > maxLength / 3) {
-            splitIndex += 1;
-        } else {
-            splitIndex = -1;
-        }
-        
-        // Cari koma
-        if (splitIndex === -1) {
-            const lastComma = searchArea.lastIndexOf(', ');
-            splitIndex = lastComma > maxLength / 3 ? lastComma + 1 : -1;
-        }
-        
-        // Cari spasi
-        if (splitIndex === -1) {
-            splitIndex = searchArea.lastIndexOf(' ');
-            if (splitIndex < maxLength / 4) splitIndex = -1;
-        }
-        
-        if (splitIndex === -1) splitIndex = maxLength;
-        
-        const chunk = remaining.slice(0, splitIndex).trim();
-        if (chunk.length >= 10) chunks.push(chunk);
-        remaining = remaining.slice(splitIndex).trim();
-    }
-    
-    return chunks.filter(c => c.length >= 10);
-}
-
-function generateSingleTTSChunk(text, voice, outputPath) {
-    return new Promise((resolve, reject) => {
-        const safeText = text
-            .replace(/"/g, "'")
-            .replace(/`/g, "'")
-            .replace(/\$/g, '')
-            .replace(/\\/g, '')
-            .replace(/\n/g, ' ')
-            .trim();
-
-        if (!safeText || safeText.length < 2) {
-            return reject(new Error('Text too short'));
-        }
-
-        exec(
-            `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`,
-            { timeout: 60000 },
-            (err) => {
-                if (err) reject(err);
-                else resolve(outputPath);
-            }
-        );
-    });
-}
-
-function concatenateAudioFiles(inputFiles, outputPath) {
-    return new Promise((resolve, reject) => {
-        if (inputFiles.length === 0) return reject(new Error('No input files'));
-        
-        if (inputFiles.length === 1) {
-            try {
-                fs.copyFileSync(inputFiles[0], outputPath);
-                return resolve(outputPath);
-            } catch (e) {
-                return reject(e);
-            }
-        }
-
-        const listPath = outputPath.replace('.mp3', '_list.txt');
-        const listContent = inputFiles.map(f => `file '${path.resolve(f)}'`).join('\n');
-
-        try {
-            fs.writeFileSync(listPath, listContent);
-        } catch (e) {
-            return reject(e);
-        }
-
-        exec(
-            `ffmpeg -f concat -safe 0 -i "${listPath}" -c:a libmp3lame -q:a 2 "${outputPath}" -y`,
-            { timeout: 120000 },
-            (err) => {
-                cleanupFile(listPath);
-                if (err) reject(err);
-                else resolve(outputPath);
-            }
-        );
-    });
-}
-
 async function generateTTS(text, voice) {
-    ensureTempDir();
-    
-    const chunks = splitTextForTTS(text);
-    if (chunks.length === 0) return null;
-
-    const sessionId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    const chunkFiles = [];
-
-    console.log(`🔊 TTS: ${chunks.length} chunks, total ${text.length} chars`);
-
-    try {
-        for (let i = 0; i < chunks.length; i++) {
-            const chunkPath = path.join(CONFIG.tempPath, `tts_${sessionId}_chunk${i}.mp3`);
-
-            try {
-                await generateSingleTTSChunk(chunks[i], voice, chunkPath);
-                if (fs.existsSync(chunkPath) && fs.statSync(chunkPath).size > 0) {
-                    chunkFiles.push(chunkPath);
-                }
-            } catch (e) {
-                console.error(`TTS chunk ${i} error:`, e.message);
-            }
-        }
-
-        if (chunkFiles.length === 0) {
-            throw new Error('No TTS chunks generated');
-        }
-
-        // Jika hanya 1 chunk, langsung return
-        if (chunkFiles.length === 1) {
-            return chunkFiles[0];
-        }
-
-        // Gabungkan semua chunks
-        const combinedPath = path.join(CONFIG.tempPath, `tts_${sessionId}_combined.mp3`);
-
-        try {
-            await concatenateAudioFiles(chunkFiles, combinedPath);
-            // Cleanup chunk files
-            chunkFiles.forEach(f => cleanupFile(f));
-            return combinedPath;
-        } catch (e) {
-            console.error('Concat error, using first chunk:', e.message);
-            // Cleanup yang lain, return chunk pertama
-            chunkFiles.slice(1).forEach(f => cleanupFile(f));
-            return chunkFiles[0];
-        }
-
-    } catch (error) {
-        chunkFiles.forEach(f => cleanupFile(f));
-        throw error;
-    }
-}
-
-// ==================== HTTP HELPER ====================
-
-function httpRequest(options, body) {
     return new Promise((resolve, reject) => {
-        const req = https.request(options, res => {
-            let data = '';
-            res.on('data', c => data += c);
-            res.on('end', () => resolve({ data, statusCode: res.statusCode }));
-        });
-        req.on('error', reject);
-        req.setTimeout(60000, () => { req.destroy(); reject(new Error('Timeout')); });
-        if (body) req.write(body);
-        req.end();
+        ensureTempDir();
+        const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
+        const safeText = cleanTextForTTS(text).replace(/"/g, "'").replace(/`/g, "'");
+
+        if (!safeText || safeText.length < 2) return reject(new Error('Text too short'));
+
+        exec(`edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`, 
+            { timeout: 30000 }, 
+            (err) => {
+                if (err) reject(err);
+                else resolve(outputPath);
+            }
+        );
     });
 }
 
@@ -896,7 +875,13 @@ async function callGemini(model, message, history, systemPrompt, useGrounding = 
     const requestBody = {
         contents: contents,
         systemInstruction: { parts: [{ text: systemPrompt }] },
-        generationConfig: { temperature: 0.7, topP: 0.95, topK: 40, maxOutputTokens: 2048 },
+        generationConfig: { 
+            temperature: 0.7, 
+            topP: 0.95, 
+            topK: 40, 
+            maxOutputTokens: 2048,
+            thinkingMode: model.includes('pro') || model.includes('research') // Enable thinking for pro models
+        },
         safetySettings: [
             { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
             { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -1106,7 +1091,28 @@ async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
         useGeminiGrounding = true;
     } else if (needsSearch) {
         searchData = await performSearch(userMessage, searchProvider);
-        if (searchData) searchContext = formatSearchContext(searchData);
+        if (searchData && searchData.urls && searchData.urls.length > 0) {
+            // Fetch and read URLs from search results
+            const contents = [];
+            for (const url of searchData.urls.slice(0, 3)) {
+                try {
+                    const content = await fetchURLClean(url);
+                    if (content) {
+                        contents.push({ url, content: content.slice(0, 3000) });
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch search result URL:', e.message);
+                }
+            }
+            
+            if (contents.length > 0) {
+                searchContext = '\n\n[SEARCH RESULTS]\n';
+                contents.forEach((c, i) => {
+                    searchContext += `\nSource ${i + 1}: ${c.url}\n${c.content}\n`;
+                });
+                searchContext += '\nUse the above search results to provide an accurate and up-to-date answer.';
+            }
+        }
     }
 
     let finalSystemPrompt = SYSTEM_PROMPT + searchContext;
@@ -1188,26 +1194,6 @@ async function callAI(guildId, userId, userMessage, isVoiceMode = false) {
         }
         throw error;
     }
-}
-
-// ==================== TTS GENERATION ====================
-
-function generateTTS(text, voice) {
-    return new Promise((resolve, reject) => {
-        ensureTempDir();
-        const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
-        const safeText = cleanTextForTTS(text).replace(/"/g, "'").replace(/`/g, "'");
-
-        if (!safeText || safeText.length < 2) return reject(new Error('Text too short'));
-
-        exec(`edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`, 
-            { timeout: 30000 }, 
-            (err) => {
-                if (err) reject(err);
-                else resolve(outputPath);
-            }
-        );
-    });
 }
 
 // ==================== VOICE FUNCTIONS ====================
@@ -1321,19 +1307,6 @@ async function playTTSInVoice(guildId, filePath) {
     return true;
 }
 
-async function playTTSInVoice(guildId, filePath) {
-    let queueData = ttsQueues.get(guildId);
-    if (!queueData) {
-        queueData = { queue: [], playing: false, currentFile: null };
-        ttsQueues.set(guildId, queueData);
-    }
-
-    queueData.queue.push({ file: filePath });
-
-    if (!queueData.playing) processNextInQueue(guildId);
-    return true;
-}
-
 // ==================== SETTINGS UI ====================
 
 function createSettingsEmbed(guildId) {
@@ -1349,7 +1322,7 @@ function createSettingsEmbed(guildId) {
             { name: '🔊 TTS Voice', value: s.ttsVoice.split('-').slice(-1)[0], inline: true },
             { name: '🔍 Search', value: s.geminiGrounding ? '🟢 Grounding ON' : (s.searchEnabled ? '🟢 ON' : '🔴 OFF'), inline: true }
         )
-        .setFooter({ text: 'v2.18.0 • DynamicManager + Voice Only' })
+        .setFooter({ text: 'v3.0.0 • Complete Edition' })
         .setTimestamp();
 }
 
@@ -1435,121 +1408,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 });
 
-// ==================== MESSAGE HANDLER ====================
-
-client.on(Events.MessageCreate, async (msg) => {
-    if (msg.author.bot || !msg.guild) return;
-
-    const isMentioned = msg.mentions.has(client.user);
-    let content = msg.content;
-
-    if (isMentioned) {
-        content = content.replace(new RegExp(`<@!?${client.user.id}>`, 'g'), '').trim();
-        if (content) return handleAI(msg, content);
-    }
-
-    if (!content.startsWith(CONFIG.prefix)) return;
-
-    const args = content.slice(CONFIG.prefix.length).trim().split(/ +/);
-    const cmd = args.shift().toLowerCase();
-
-    try {
-        switch (cmd) {
-            case 'ai': case 'ask': case 'chat':
-                if (!args.join(' ')) return msg.reply('❓ `.ai pertanyaan`');
-                await handleAI(msg, args.join(' '));
-                break;
-
-            case 'join': case 'j':
-                const jr = await joinUserVoiceChannel(msg.member, msg.guild);
-                await msg.reply(jr.success ? (jr.alreadyConnected ? `✅ Already in **${jr.channel.name}**` : `🔊 Joined **${jr.channel.name}**`) : `❌ ${jr.error}`);
-                break;
-
-            case 'leave': case 'dc':
-                await msg.reply(await leaveVoiceChannel(msg.guild) ? '👋 Left' : '❌ Not in voice');
-                break;
-
-            case 'speak': case 'say':
-                await handleSpeak(msg, args.join(' '));
-                break;
-
-            case 'stop':
-                const player = audioPlayers.get(msg.guild.id);
-                if (player) { player.stop(); await msg.reply('⏹️ Stopped'); }
-                else await msg.reply('❌ Nothing playing');
-                break;
-
-            case 'settings': case 'config':
-                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
-                const comps = [createProviderMenu(msg.guild.id), createModelMenu(msg.guild.id), createVoiceMenu(msg.guild.id), createModeButtons(msg.guild.id)].filter(Boolean);
-                await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
-                break;
-
-            case 'manage': case 'apimanager': case 'manager':
-                await manager.showMainMenu(msg);
-                break;
-
-            case 'listapi': case 'apis':
-                await manager.quickListApi(msg);
-                break;
-
-            case 'syncmodels':
-                await manager.quickSyncModels(msg, args[0]);
-                break;
-
-            case 'clear': case 'reset':
-                clearConversation(msg.guild.id, msg.author.id);
-                await msg.reply('🗑️ Conversation cleared!');
-                break;
-
-            case 'status':
-                const poolStatus = await manager.getPoolStatus();
-                let statusText = '**📊 Bot Status v2.18.0**\n\n';
-                statusText += `**API Pool:**\n`;
-                for (const [p, s] of Object.entries(poolStatus)) {
-                    if (s.keys > 0) statusText += `• ${p}: ${s.keys} keys (${s.active} active)\n`;
-                }
-                statusText += `\n**Free Providers:**\n• pollinations_free: 🟢 No key needed`;
-                statusText += `\n\n**Redis:** ${manager.connected ? '🟢 Connected' : '🔴 Using ENV'}`;
-                statusText += `\n**Uptime:** ${Math.floor((Date.now() - startTime) / 60000)} min`;
-                await msg.reply(statusText);
-                break;
-
-            case 'help': case 'h':
-                await msg.reply(`**🤖 Aria AI Bot v2.18.0**
-
-**Chat:**
-• \`.ai <pertanyaan>\` - Tanya AI
-• \`@Aria <pertanyaan>\` - Mention
-
-**Voice:**
-• \`.join\` - Gabung voice
-• \`.leave\` - Keluar voice
-• \`.speak <text>\` - TTS
-• \`.stop\` - Stop audio
-
-**Settings:**
-• \`.settings\` - Settings panel
-• \`.clear\` - Hapus memory
-
-**API Manager (Admin):**
-• \`.manage\` - Menu API & Model
-• \`.listapi\` - List API pools
-• \`.syncmodels <provider>\` - Sync models
-• \`.status\` - Bot status`);
-                break;
-
-            case 'ping':
-                await msg.reply(`🏓 Pong! ${Date.now() - msg.createdTimestamp}ms`);
-                break;
-        }
-    } catch (e) {
-        console.error('Command error:', e);
-        msg.reply(`❌ ${e.message}`).catch(() => {});
-    }
-});
-
-// ==================== AI & SPEAK HANDLERS ====================
+// ==================== COMMAND HANDLERS ====================
 
 async function handleAI(msg, query) {
     const rateCheck = checkRateLimit(msg.author.id);
@@ -1617,35 +1476,597 @@ async function handleSpeak(msg, text) {
     }
 }
 
-// ==================== READY ====================
+async function handleURLAuto(msg, urls, originalMessage) {
+    const urlsToFetch = urls.slice(0, 2);
+    
+    let statusMsg = await msg.reply('🔗 Detected URL, reading...');
+    
+    try {
+        const contents = [];
+        
+        for (const url of urlsToFetch) {
+            try {
+                await statusMsg.edit(`💭 Reading: ${new URL(url).hostname}...`);
+                
+                let content;
+                if (url.includes('github.com') && url.includes('/blob/')) {
+                    content = await readGitHubFile(url);
+                } else {
+                    content = await fetchURLClean(url);
+                }
+                
+                if (content && content.length > 100) {
+                    contents.push({ url, content: content.slice(0, 5000) });
+                }
+            } catch (e) {
+                console.error('Failed to fetch:', url, e.message);
+            }
+        }
+        
+        if (contents.length === 0) {
+            return statusMsg.edit('❌ Could not read URL');
+        }
+        
+        await statusMsg.edit(`💭 Analyzing ${contents.length} URL(s)...`);
+        
+        // Build context
+        let contextPrompt = buildContextPrompt(
+            originalMessage.replace(/(https?:\/\/[^\s]+)/g, '').trim() || 'Jelaskan konten dari URL ini',
+            contents,
+            true // Enable thinking mode
+        );
+        
+        // Send to AI
+        const response = await callAI(msg.guild.id, msg.author.id, contextPrompt, false);
+        
+        // Parse thinking
+        const { thinking, answer } = parseThinkingResponse(response.text);
+        
+        // Format response
+        let finalMsg = answer;
+        finalMsg += '\n\n📚 **Source:**\n';
+        finalMsg += contents.map(c => `• ${new URL(c.url).hostname}`).join('\n');
+        
+        // Add thinking as spoiler
+        if (thinking && thinking.length > 20) {
+            finalMsg += `\n\n||💭 **Reasoning:**\n${thinking.slice(0, 1000)}||`;
+        }
+        
+        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms 🔗`;
+        
+        const parts = splitMessage(finalMsg);
+        await statusMsg.edit(parts[0]);
+        
+        for (let i = 1; i < parts.length; i++) {
+            await msg.channel.send(parts[i]);
+        }
+        
+    } catch (e) {
+        await statusMsg.edit(`❌ ${e.message}`);
+    }
+}
 
-client.once(Events.ClientReady, () => {
-    console.log('\n' + '='.repeat(50));
-    console.log(`🤖 ${client.user.tag} online!`);
-    console.log(`📡 ${client.guilds.cache.size} servers`);
-    console.log(`📦 v2.18.0 - DynamicManager + Voice Only`);
-    console.log('='.repeat(50));
-    console.log(`🔗 Redis: ${manager.connected ? '✅' : '❌ (using ENV fallback)'}`);
-    console.log(`🔍 Serper: ${CONFIG.serperApiKey ? '✅' : '❌'}`);
-    console.log(`🔍 Tavily: ${CONFIG.tavilyApiKey ? '✅' : '❌'}`);
-    console.log('='.repeat(50) + '\n');
+async function handleFileRead(msg) {
+    if (msg.attachments.size === 0) {
+        return msg.reply('❓ Upload file yang ingin dibaca');
+    }
+    
+    const attachment = msg.attachments.first();
+    
+    // Check file size
+    if (attachment.size > CONFIG.maxFileSize) {
+        return msg.reply(`❌ File terlalu besar (max ${CONFIG.maxFileSize / 1024 / 1024}MB)`);
+    }
+    
+    const statusMsg = await msg.reply('📄 Reading file...');
+    
+    try {
+        const content = await readFile(attachment);
+        
+        if (!content || content.length < 10) {
+            return statusMsg.edit('❌ Could not read file content');
+        }
+        
+        await statusMsg.edit(`💭 Analyzing ${attachment.name}...`);
+        
+        // Send to AI for analysis
+        const prompt = `Analisis file berikut:\n\nFile: ${attachment.name}\nContent:\n${content.slice(0, 8000)}`;
+        
+        const response = await callAI(msg.guild.id, msg.author.id, prompt, false);
+        
+        let finalMsg = `📄 **${attachment.name}**\n\n${response.text}\n\n-# ${response.model} • ${response.latency}ms`;
+        
+        const parts = splitMessage(finalMsg);
+        await statusMsg.edit(parts[0]);
+        
+        for (let i = 1; i < parts.length; i++) {
+            await msg.channel.send(parts[i]);
+        }
+        
+    } catch (e) {
+        await statusMsg.edit(`❌ ${e.message}`);
+    }
+}
 
-    client.user.setActivity(`.ai | .help`, { type: ActivityType.Listening });
+async function handleImageAnalysis(msg) {
+    const images = msg.attachments.filter(a => 
+        a.contentType && a.contentType.startsWith('image/')
+    );
+    
+    if (images.size === 0) {
+        return msg.reply('❓ Upload gambar yang ingin dianalisis');
+    }
+    
+    const image = images.first();
+    
+    // Check image size
+    if (image.size > CONFIG.maxImageSize) {
+        return msg.reply(`❌ Gambar terlalu besar (max ${CONFIG.maxImageSize / 1024 / 1024}MB)`);
+    }
+    
+    const statusMsg = await msg.reply('🖼️ Analyzing image...');
+    
+    try {
+        const analysis = await analyzeImage(image.url, msg.content.replace(CONFIG.prefix + 'analyze', '').trim());
+        
+        let finalMsg = `🖼️ **Image Analysis**\n\n${analysis}\n\n-# Gemini Vision • ${Date.now() - msg.createdTimestamp}ms`;
+        
+        const parts = splitMessage(finalMsg);
+        await statusMsg.edit(parts[0]);
+        
+        for (let i = 1; i < parts.length; i++) {
+            await msg.channel.send(parts[i]);
+        }
+        
+    } catch (e) {
+        await statusMsg.edit(`❌ ${e.message}`);
+    }
+}
+
+async function handleSearchCommand(msg, query) {
+    if (!query) return msg.reply('❓ `.search <query>`');
+    
+    const statusMsg = await msg.reply('🔍 Searching...');
+    
+    try {
+        // Perform search
+        const searchResults = await performSearch(query);
+        
+        if (!searchResults || (!searchResults.urls?.length && !searchResults.facts?.length)) {
+            return statusMsg.edit('❌ No search results found');
+        }
+        
+        await statusMsg.edit(`📖 Reading ${searchResults.urls?.length || 0} sources...`);
+        
+        // Fetch URL contents
+        const contents = [];
+        if (searchResults.urls) {
+            for (const url of searchResults.urls.slice(0, 3)) {
+                try {
+                    const content = await fetchURLClean(url);
+                    if (content) {
+                        contents.push({ url, content: content.slice(0, 3000) });
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch:', url);
+                }
+            }
+        }
+        
+        await statusMsg.edit('💭 Reasoning...');
+        
+        // Build prompt with search results
+        const contextPrompt = buildContextPrompt(query, contents, true);
+        
+        // Get AI response
+        const response = await callAI(msg.guild.id, msg.author.id, contextPrompt, false);
+        
+        // Parse thinking
+        const { thinking, answer } = parseThinkingResponse(response.text);
+        
+        // Format final response
+        let finalMsg = answer;
+        
+        if (contents.length > 0) {
+            finalMsg += '\n\n📚 **Sources:**\n';
+            finalMsg += contents.map(c => `• ${new URL(c.url).hostname}`).join('\n');
+        }
+        
+        if (thinking && thinking.length > 20) {
+            finalMsg += `\n\n||💭 **Reasoning Process:**\n${thinking.slice(0, 1500)}||`;
+        }
+        
+        finalMsg += `\n\n-# ${response.model} • ${response.latency}ms 🔍`;
+        
+        const parts = splitMessage(finalMsg);
+        await statusMsg.edit(parts[0]);
+        
+        for (let i = 1; i < parts.length; i++) {
+            await msg.channel.send(parts[i]);
+        }
+        
+    } catch (e) {
+        await statusMsg.edit(`❌ ${e.message}`);
+    }
+}
+
+// ==================== MESSAGE HANDLER (CONTINUED) ====================
+
+        // Check for readable files
+        const readableFiles = msg.attachments.filter(a => {
+            const ext = path.extname(a.name || '').toLowerCase();
+            const readableExts = ['.txt', '.js', '.py', '.json', '.md', '.yml', '.yaml', '.xml', '.html', '.css', '.cpp', '.c', '.java', '.ts', '.tsx', '.jsx', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.csv'];
+            return readableExts.includes(ext);
+        });
+        
+        if (readableFiles.size > 0) {
+            await handleFileRead(msg);
+            return;
+        }
+        
+        // Check for images
+        const images = msg.attachments.filter(a => 
+            a.contentType && a.contentType.startsWith('image/')
+        );
+        
+        if (images.size > 0) {
+            await handleImageAnalysis(msg);
+            return;
+        }
+    }
+    
+    // ===== AUTO IMAGE DETECTION =====
+    if (msg.attachments.size > 0 && !hasCommand) {
+        const images = msg.attachments.filter(a => 
+            a.contentType && a.contentType.startsWith('image/')
+        );
+        
+        if (images.size > 0 && (hasMention || content.toLowerCase().includes('analisis') || content.toLowerCase().includes('analyze') || content.toLowerCase().includes('jelaskan'))) {
+            await handleImageAnalysis(msg);
+            return;
+        }
+    }
+    
+    // ===== MENTION HANDLER =====
+    if (hasMention && !hasCommand) {
+        const cleanQuery = content.replace(/<@!?\d+>/g, '').trim();
+        if (cleanQuery.length > 0) {
+            await handleAI(msg, cleanQuery);
+        } else {
+            await msg.reply('👋 Hai! Aku Aria. Ada yang bisa dibantu?');
+        }
+        return;
+    }
+
+    // ===== COMMAND HANDLER =====
+    if (!hasCommand) return;
+
+    const args = content.slice(CONFIG.prefix.length).trim().split(/\s+/);
+    const cmd = args.shift()?.toLowerCase();
+
+    switch (cmd) {
+        // === AI Commands ===
+        case 'ai':
+        case 'chat':
+        case 'ask':
+        case 'tanya':
+            await handleAI(msg, args.join(' '));
+            break;
+
+        case 'search':
+        case 'cari':
+            await handleSearchCommand(msg, args.join(' '));
+            break;
+
+        case 'analyze':
+        case 'analisis':
+            if (msg.attachments.size > 0) {
+                const images = msg.attachments.filter(a => a.contentType?.startsWith('image/'));
+                if (images.size > 0) {
+                    await handleImageAnalysis(msg);
+                } else {
+                    await handleFileRead(msg);
+                }
+            } else {
+                await msg.reply('❓ Upload file atau gambar untuk dianalisis');
+            }
+            break;
+
+        case 'read':
+        case 'baca':
+            if (msg.attachments.size > 0) {
+                await handleFileRead(msg);
+            } else if (args.length > 0 && args[0].startsWith('http')) {
+                await handleURLAuto(msg, [args[0]], args.slice(1).join(' ') || 'Jelaskan konten URL ini');
+            } else {
+                await msg.reply('❓ Upload file atau berikan URL');
+            }
+            break;
+
+        case 'url':
+        case 'link':
+            if (args.length === 0) return msg.reply('❓ `.url <link>`');
+            const targetUrl = args[0];
+            const urlQuery = args.slice(1).join(' ') || 'Jelaskan konten dari URL ini';
+            await handleURLAuto(msg, [targetUrl], urlQuery);
+            break;
+
+        // === Voice Commands ===
+        case 'join':
+        case 'connect':
+            const joinResult = await joinUserVoiceChannel(msg.member, msg.guild);
+            if (joinResult.success) {
+                if (joinResult.alreadyConnected) {
+                    await msg.reply(`✅ Sudah di ${joinResult.channel.name}`);
+                } else {
+                    await msg.reply(`🔊 Joined **${joinResult.channel.name}**`);
+                }
+            } else {
+                await msg.reply(`❌ ${joinResult.error}`);
+            }
+            break;
+
+        case 'leave':
+        case 'disconnect':
+        case 'dc':
+            if (await leaveVoiceChannel(msg.guild)) {
+                await msg.reply('👋 Left voice channel');
+            } else {
+                await msg.reply('❌ Not in voice channel');
+            }
+            break;
+
+        case 'speak':
+        case 'say':
+        case 'tts':
+            await handleSpeak(msg, args.join(' '));
+            break;
+
+        case 'stop':
+            const player = audioPlayers.get(msg.guild.id);
+            if (player) {
+                player.stop();
+                const queueData = ttsQueues.get(msg.guild.id);
+                if (queueData) {
+                    queueData.queue = [];
+                    if (queueData.currentFile) {
+                        cleanupFile(queueData.currentFile);
+                        queueData.currentFile = null;
+                    }
+                }
+                await msg.reply('⏹️ Stopped');
+            }
+            break;
+
+        // === Conversation Commands ===
+        case 'clear':
+        case 'reset':
+        case 'new':
+            clearConversation(msg.guild.id, msg.author.id);
+            await msg.reply('🗑️ Conversation cleared');
+            break;
+
+        case 'clearall':
+            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+            let cleared = 0;
+            for (const [key] of conversations) {
+                if (key.startsWith(msg.guild.id)) {
+                    conversations.delete(key);
+                    cleared++;
+                }
+            }
+            await msg.reply(`🗑️ Cleared ${cleared} conversations`);
+            break;
+
+        // === Settings Commands ===
+        case 'settings':
+        case 'set':
+        case 'config':
+            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+            const comps = [
+                createProviderMenu(msg.guild.id),
+                createModelMenu(msg.guild.id),
+                createVoiceMenu(msg.guild.id),
+                createModeButtons(msg.guild.id)
+            ].filter(Boolean);
+            await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
+            break;
+
+        case 'model':
+            const s = getSettings(msg.guild.id);
+            const aiInfo = AI_PROVIDERS[s.aiProvider];
+            const modelInfo = aiInfo?.models.find(m => m.id === s.aiModel);
+            await msg.reply(`🧠 **${aiInfo?.name || s.aiProvider}** - ${modelInfo?.name || s.aiModel}`);
+            break;
+
+        // === Admin Commands ===
+        case 'dm':
+        case 'dynamic':
+            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+            const dmEmbed = manager.createStatusEmbed();
+            const dmComponents = manager.createManagementUI();
+            await msg.reply({ embeds: [dmEmbed], components: dmComponents });
+            break;
+
+        case 'addkey':
+            if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+            if (args.length < 2) return msg.reply('❓ `.addkey <provider> <key>`');
+            const [provider, key] = args;
+            try {
+                await manager.addKey(provider, key);
+                await msg.reply(`✅ Added key for ${provider}`);
+                // Delete the message containing the key for security
+                try { await msg.delete(); } catch {}
+            } catch (e) {
+                await msg.reply(`❌ ${e.message}`);
+            }
+            break;
+
+        case 'status':
+            const statusEmbed = new EmbedBuilder()
+                .setColor(0x00FF00)
+                .setTitle('📊 Bot Status')
+                .addFields(
+                    { name: '⏱️ Uptime', value: `${Math.floor((Date.now() - startTime) / 1000 / 60)} minutes`, inline: true },
+                    { name: '🏠 Guilds', value: `${client.guilds.cache.size}`, inline: true },
+                    { name: '👥 Users', value: `${client.users.cache.size}`, inline: true },
+                    { name: '💬 Conversations', value: `${conversations.size}`, inline: true },
+                    { name: '🔊 Voice Connections', value: `${voiceConnections.size}`, inline: true },
+                    { name: '🧠 Memory', value: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`, inline: true }
+                )
+                .setTimestamp();
+            await msg.reply({ embeds: [statusEmbed] });
+            break;
+
+        case 'ping':
+            const latency = Date.now() - msg.createdTimestamp;
+            await msg.reply(`🏓 Pong! ${latency}ms | API: ${Math.round(client.ws.ping)}ms`);
+            break;
+
+        // === Help Command ===
+        case 'help':
+        case 'h':
+        case 'commands':
+            const helpEmbed = new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setTitle('🌟 Aria - AI Assistant')
+                .setDescription('Premium AI assistant with voice, search, file reading, and image analysis.')
+                .addFields(
+                    { 
+                        name: '💬 Chat Commands', 
+                        value: [
+                            '`.ai <message>` - Chat with AI',
+                            '`.search <query>` - Search & analyze with AI',
+                            '`@Aria <message>` - Mention to chat',
+                            '`.clear` - Clear conversation'
+                        ].join('\n'),
+                        inline: false 
+                    },
+                    { 
+                        name: '📄 File & URL Commands', 
+                        value: [
+                            '`.read <url>` - Read & analyze URL',
+                            '`.analyze` + attachment - Analyze file/image',
+                            '`@Aria` + file/image - Auto analyze'
+                        ].join('\n'),
+                        inline: false 
+                    },
+                    { 
+                        name: '🔊 Voice Commands', 
+                        value: [
+                            '`.join` - Join voice channel',
+                            '`.leave` - Leave voice channel',
+                            '`.speak <text>` - Text to speech',
+                            '`.stop` - Stop audio'
+                        ].join('\n'),
+                        inline: false 
+                    },
+                    { 
+                        name: '⚙️ Settings (Admin)', 
+                        value: [
+                            '`.settings` - Open settings panel',
+                            '`.dm` - Dynamic API key manager',
+                            '`.status` - Bot status'
+                        ].join('\n'),
+                        inline: false 
+                    }
+                )
+                .setFooter({ text: 'v3.0.0 • Complete Edition' })
+                .setTimestamp();
+            await msg.reply({ embeds: [helpEmbed] });
+            break;
+
+        default:
+            // Check if it's a direct AI query
+            if (cmd && cmd.length > 2) {
+                await handleAI(msg, content.slice(CONFIG.prefix.length));
+            }
+    }
+});
+
+// ==================== VOICE STATE UPDATE ====================
+
+client.on(Events.VoiceStateUpdate, (oldState, newState) => {
+    // Handle bot disconnect
+    if (oldState.member?.id === client.user?.id && !newState.channelId) {
+        leaveVoiceChannel(oldState.guild.id);
+    }
+    
+    // Auto-leave if alone
+    if (oldState.channelId && !newState.channelId) {
+        const connection = voiceConnections.get(oldState.guild.id);
+        if (connection && connection.joinConfig.channelId === oldState.channelId) {
+            const channel = oldState.guild.channels.cache.get(oldState.channelId);
+            if (channel && channel.members.size === 1) {
+                setTimeout(() => {
+                    const ch = oldState.guild.channels.cache.get(oldState.channelId);
+                    if (ch && ch.members.size === 1) {
+                        leaveVoiceChannel(oldState.guild.id);
+                    }
+                }, 30000);
+            }
+        }
+    }
+});
+
+// ==================== READY EVENT ====================
+
+client.once(Events.ClientReady, async () => {
+    console.log(`✅ Logged in as ${client.user.tag}`);
+    console.log(`📊 Serving ${client.guilds.cache.size} guilds`);
+    
+    // Set activity
+    client.user.setActivity('with AI | .help', { type: ActivityType.Playing });
+    
+    // Initialize manager
+    await manager.initialize();
+    
+    // Ensure temp directory
     ensureTempDir();
+    
+    // Log available providers
+    console.log('🧠 AI Providers:', Object.keys(AI_PROVIDERS).join(', '));
+    console.log('🔊 TTS Voices:', TTS_VOICES.length);
+    console.log('🔍 Search Providers:', CONFIG.tavilyApiKey ? 'Tavily ✓' : 'Tavily ✗', CONFIG.serperApiKey ? 'Serper ✓' : 'Serper ✗');
 });
 
 // ==================== ERROR HANDLING ====================
 
-process.on('unhandledRejection', (e) => console.error('Unhandled:', e));
-process.on('uncaughtException', (e) => console.error('Uncaught:', e));
-process.on('SIGTERM', () => {
-    console.log('Shutting down...');
-    voiceConnections.forEach((c) => c.destroy());
+client.on(Events.Error, error => {
+    console.error('❌ Client Error:', error);
+});
+
+process.on('unhandledRejection', error => {
+    console.error('❌ Unhandled Rejection:', error);
+});
+
+process.on('uncaughtException', error => {
+    console.error('❌ Uncaught Exception:', error);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+    console.log('🛑 Shutting down...');
+    
+    // Leave all voice channels
+    for (const [guildId] of voiceConnections) {
+        leaveVoiceChannel(guildId);
+    }
+    
+    // Cleanup temp files
+    try {
+        if (fs.existsSync(CONFIG.tempPath)) {
+            fs.readdirSync(CONFIG.tempPath).forEach(file => {
+                fs.unlinkSync(path.join(CONFIG.tempPath, file));
+            });
+        }
+    } catch {}
+    
     client.destroy();
     process.exit(0);
 });
 
-// ==================== START ====================
+// ==================== LOGIN ====================
 
 if (!CONFIG.token) {
     console.error('❌ DISCORD_TOKEN not set!');
