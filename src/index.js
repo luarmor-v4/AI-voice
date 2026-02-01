@@ -1081,7 +1081,6 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
     const modelId = CONFIG.elevenlabs.modelId || 'eleven_multilingual_v2';
     const scraperKey = CONFIG.elevenlabs.scraperApiKey;
     
-    // Siapkan options dasar
     let fetchOptions = {
         method: 'POST',
         headers: {
@@ -1101,21 +1100,22 @@ async function generateElevenLabsTTS(text, voiceId, outputPath) {
         })
     };
 
-    // Tambahkan Proxy jika ScraperAPI Key tersedia
     if (scraperKey) {
         console.log(`🛡️ Proxy: Using ScraperAPI to bypass ElevenLabs IP block...`);
-        // Format Proxy ScraperAPI: http://scraperapi:KEY@proxy-server.scraperapi.com:8001
         const proxyUrl = `http://scraperapi:${scraperKey}@proxy-server.scraperapi.com:8001`;
+        
+        // Create proxy agent with SSL verification disabled
         const agent = new HttpsProxyAgent(proxyUrl);
+        agent.options = { rejectUnauthorized: false }; // Hack for node-fetch
+        
         fetchOptions.agent = agent;
     } else {
         console.log(`⚠️ Proxy: No ScraperAPI key found. Direct connection may fail (401).`);
     }
     
-    // Request dengan timeout lebih lama karena lewat proxy
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
         ...fetchOptions,
-        timeout: 60000 // 60 detik timeout untuk proxy
+        timeout: 60000 
     });
     
     if (!response.ok) {
