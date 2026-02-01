@@ -94,7 +94,7 @@ const CONFIG = {
     elevenlabs: {
         apiKey: process.env.ELEVENLABS_API_KEY,
         modelId: 'eleven_multilingual_v2',
-        defaultVoice: 'gmnazjXOFoOcWA59sd5m',
+        defaultVoice: '21m00Tcm4TlvDq8ikWAM',
         adminOnly: true  // Hanya admin yang pakai ElevenLabs
     },
     // Voice AI Settings
@@ -1782,17 +1782,13 @@ function setupVoiceReceiver(connection, guildId, textChannel) {
 function startRecording(connection, userId, guildId, textChannel) {
     if (voiceRecordings.has(userId)) return;
     
-    // Check if bot is speaking (prevent recording own TTS)
+    // Check if bot is speaking
     const session = voiceAISessions.get(guildId);
-    if (session?.isSpeaking) {
-        console.log(`⏭️ Skipped recording - bot is speaking`);
-        return;
-    }
+    if (session?.isSpeaking) return;
     
     const receiver = connection.receiver;
     
-    console.log(`🎙️ Started recording user ${userId}`);
-    
+    // Subscribe to opus stream
     const opusStream = receiver.subscribe(userId, {
         end: {
             behavior: EndBehaviorType.AfterSilence,
@@ -1800,7 +1796,7 @@ function startRecording(connection, userId, guildId, textChannel) {
         }
     });
     
-    // Decode Opus ke PCM menggunakan prism-media
+    // Initialize decoder
     const opusDecoder = new prism.opus.Decoder({
         frameSize: 960,
         channels: 2,
@@ -1820,7 +1816,21 @@ function startRecording(connection, userId, guildId, textChannel) {
     
     voiceRecordings.set(userId, recordingData);
     
-    // Pipe opus stream through decoder
+    console.log(`🎙️ Started recording user ${userId}`);
+    
+    // Error handling untuk stream
+    const handleError = (err, source) => {
+        // Ignore common benign errors
+        if (err.message === 'stream.push() after EOF') return;
+        if (err.message.includes('compressed data')) return;
+        console.error(`${source} error user ${userId}:`, err.message);
+        cleanupRecording(userId);
+    };
+
+    opusStream.on('error', (err) => handleError(err, 'Audio stream'));
+    opusDecoder.on('error', (err) => handleError(err, 'Opus decoder'));
+    
+    // Pipe stream
     opusStream.pipe(opusDecoder);
     
     opusDecoder.on('data', (chunk) => {
@@ -1830,37 +1840,37 @@ function startRecording(connection, userId, guildId, textChannel) {
     });
     
     opusDecoder.on('end', async () => {
-        voiceRecordings.delete(userId);
+        cleanupRecording(userId);
         
         const duration = Date.now() - startTime;
         if (duration < CONFIG.voiceAI.minAudioLength || chunks.length === 0) {
-            console.log(`⏭️ Recording too short: ${duration}ms, chunks: ${chunks.length}`);
             return;
         }
         
         const pcmBuffer = Buffer.concat(chunks);
-        console.log(`📊 PCM Buffer: ${pcmBuffer.length} bytes, duration: ${duration}ms`);
-        
         await processVoiceInput(userId, guildId, pcmBuffer, textChannel);
     });
     
-    opusDecoder.on('error', (err) => {
-        console.error('Opus decoder error:', err.message);
-        voiceRecordings.delete(userId);
-    });
-    
-    opusStream.on('error', (err) => {
-        console.error('Audio stream error:', err.message);
-        voiceRecordings.delete(userId);
-    });
-    
+    // Safety timeout
     recordingData.timeout = setTimeout(() => {
         if (voiceRecordings.has(userId)) {
-            console.log(`⏱️ Recording timeout for user ${userId}`);
-            opusStream.destroy();
-            voiceRecordings.delete(userId);
+            console.log(`⏱️ Recording timeout user ${userId}`);
+            cleanupRecording(userId);
         }
     }, CONFIG.voiceAI.maxRecordingDuration + 1000);
+}
+
+// Helper function untuk cleanup bersih
+function cleanupRecording(userId) {
+    const recording = voiceRecordings.get(userId);
+    if (!recording) return;
+    
+    if (recording.timeout) clearTimeout(recording.timeout);
+    
+    try { recording.stream.destroy(); } catch {}
+    try { recording.decoder.destroy(); } catch {}
+    
+    voiceRecordings.delete(userId);
 }
 
 async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
