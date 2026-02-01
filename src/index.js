@@ -34,6 +34,8 @@ const fs = require('fs');
 const path = require('path');
 const cheerio = require('cheerio');
 const fetch = require('node-fetch');
+const FormData = require('form-data');
+const { EndBehaviorType } = require('@discordjs/voice');
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
 const xlsx = require('xlsx');
@@ -86,7 +88,17 @@ const CONFIG = {
     rateLimitMax: 30,
     voiceInactivityTimeout: 300000,
     maxFileSize: 10 * 1024 * 1024,
-    maxImageSize: 5 * 1024 * 1024
+    maxImageSize: 5 * 1024 * 1024,    // ← KOMA DI SINI!
+    // Voice AI Settings
+    voiceAI: {
+        enabled: true,
+        whisperModel: 'whisper-large-v3-turbo',
+        wakeWord: 'toing',
+        maxRecordingDuration: 15000,
+        silenceDuration: 1500,
+        minAudioLength: 500,
+        supportedLanguages: ['id', 'en']
+    }
 }; // Pastikan ada titik koma dan kurung tutup di sini
 // Initialize Dynamic Manager
 const manager = new DynamicManager(process.env.REDIS_URL, CONFIG.adminIds);
@@ -812,6 +824,10 @@ const voiceConnections = new Map();
 const audioPlayers = new Map();
 const ttsQueues = new Map();
 const conversations = new Map();
+// ==================== VOICE AI STORAGE ====================
+const voiceRecordings = new Map();
+const voiceAISessions = new Map();
+const processingUsers = new Set();
 
 function getSettings(guildId) {
     if (!guildSettings.has(guildId)) guildSettings.set(guildId, { ...DEFAULT_SETTINGS });
@@ -1320,6 +1336,12 @@ async function joinUserVoiceChannel(member, guild) {
             processNextInQueue(guild.id);
         });
 
+                // Setup voice receiver if Voice AI enabled
+        const session = voiceAISessions.get(guild.id);
+        if (session?.enabled) {
+            setupVoiceReceiver(conn, guild.id, session.textChannel);
+        }
+
         return { success: true, channel: vc };
 
     } catch (e) {
@@ -1330,7 +1352,12 @@ async function joinUserVoiceChannel(member, guild) {
 
 async function leaveVoiceChannel(guild) {
     const guildId = guild.id || guild;
+    
+    // Disable Voice AI when leaving
+    disableVoiceAI(guildId);
+    
     const conn = voiceConnections.get(guildId) || getVoiceConnection(guildId);
+    // ... sisanya tetap
 
     const queueData = ttsQueues.get(guildId);
     if (queueData) {
@@ -1493,6 +1520,218 @@ client.on(Events.InteractionCreate, async (interaction) => {
 });
 
 // ==================== COMMAND HANDLERS ====================
+
+async function transcribeWithGroq(audioFilePath) {
+    const apiKey = CONFIG.groqApiKey;
+    if (!apiKey) throw new Error('No Groq API key for transcription');
+    
+    const formData = new FormData();
+    formData.append('file', fs.createReadStream(audioFilePath));
+    formData.append('model', CONFIG.voiceAI.whisperModel);
+    formData.append('language', 'id');
+    formData.append('response_format', 'json');
+    
+    const response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`
+        },
+        body: formData
+    });
+    
+    if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Whisper API error: ${response.status} - ${error}`);
+    }
+    
+    const result = await response.json();
+    return result.text || '';
+}
+
+function setupVoiceReceiver(connection, guildId, textChannel) {
+    const receiver = connection.receiver;
+    
+    receiver.speaking.on('start', (userId) => {
+        const session = voiceAISessions.get(guildId);
+        if (!session?.enabled) return;
+        if (processingUsers.has(userId)) return;
+        
+        startRecording(connection, userId, guildId, textChannel);
+    });
+}
+
+function startRecording(connection, userId, guildId, textChannel) {
+    if (voiceRecordings.has(userId)) return;
+    
+    const receiver = connection.receiver;
+    
+    const audioStream = receiver.subscribe(userId, {
+        end: {
+            behavior: EndBehaviorType.AfterSilence,
+            duration: CONFIG.voiceAI.silenceDuration
+        }
+    });
+    
+    const chunks = [];
+    const startTime = Date.now();
+    
+    const recordingData = {
+        chunks,
+        startTime,
+        stream: audioStream,
+        timeout: null
+    };
+    
+    voiceRecordings.set(userId, recordingData);
+    
+    audioStream.on('data', (chunk) => {
+        if (Date.now() - startTime < CONFIG.voiceAI.maxRecordingDuration) {
+            chunks.push(chunk);
+        }
+    });
+    
+    audioStream.on('end', async () => {
+        voiceRecordings.delete(userId);
+        
+        const duration = Date.now() - startTime;
+        if (duration < CONFIG.voiceAI.minAudioLength || chunks.length === 0) {
+            return;
+        }
+        
+        await processVoiceInput(userId, guildId, Buffer.concat(chunks), textChannel);
+    });
+    
+    audioStream.on('error', (err) => {
+        console.error('Audio stream error:', err.message);
+        voiceRecordings.delete(userId);
+    });
+    
+    recordingData.timeout = setTimeout(() => {
+        if (voiceRecordings.has(userId)) {
+            audioStream.destroy();
+            voiceRecordings.delete(userId);
+        }
+    }, CONFIG.voiceAI.maxRecordingDuration + 1000);
+}
+
+async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
+    if (processingUsers.has(userId)) return;
+    processingUsers.add(userId);
+    
+    const tempFile = path.join(CONFIG.tempPath, `voice_${userId}_${Date.now()}.ogg`);
+    
+    try {
+        await convertOpusToOgg(audioBuffer, tempFile);
+        
+        const fileStats = fs.statSync(tempFile);
+        if (fileStats.size < 1000) {
+            return;
+        }
+        
+        const transcription = await transcribeWithGroq(tempFile);
+        
+        if (!transcription || transcription.trim().length < 2) {
+            return;
+        }
+        
+        console.log(`🎤 [${userId}]: "${transcription}"`);
+        
+        const wakeWord = CONFIG.voiceAI.wakeWord.toLowerCase();
+        const text = transcription.toLowerCase();
+        
+        if (!text.includes(wakeWord)) {
+            return;
+        }
+        
+        const query = transcription.replace(new RegExp(wakeWord, 'gi'), '').trim();
+        
+        if (query.length < 2) {
+            const s = getSettings(guildId);
+            const ttsFile = await generateTTS('Ya, ada yang bisa kubantu?', s.ttsVoice);
+            await playTTSInVoice(guildId, ttsFile);
+            return;
+        }
+        
+        if (textChannel) {
+            textChannel.send(`🎤 **Voice:** ${transcription}`).catch(() => {});
+        }
+        
+        const response = await callAI(guildId, userId, query, true);
+        
+        if (textChannel) {
+            const info = `*${response.model} • ${response.latency}ms* 🎙️`;
+            textChannel.send(`${response.text}\n\n-# ${info}`).catch(() => {});
+        }
+        
+        const s = getSettings(guildId);
+        const ttsFile = await generateTTS(response.text, s.ttsVoice);
+        await playTTSInVoice(guildId, ttsFile);
+        
+    } catch (error) {
+        console.error('Voice processing error:', error.message);
+    } finally {
+        cleanupFile(tempFile);
+        processingUsers.delete(userId);
+    }
+}
+
+async function convertOpusToOgg(opusBuffer, outputPath) {
+    return new Promise((resolve, reject) => {
+        const tempPcm = outputPath.replace('.ogg', '.pcm');
+        
+        try {
+            fs.writeFileSync(tempPcm, opusBuffer);
+            
+            exec(
+                `ffmpeg -y -f s16le -ar 48000 -ac 2 -i "${tempPcm}" -c:a libopus "${outputPath}"`,
+                { timeout: 10000 },
+                (error) => {
+                    cleanupFile(tempPcm);
+                    
+                    if (error) {
+                        fs.writeFileSync(outputPath, opusBuffer);
+                    }
+                    resolve(outputPath);
+                }
+            );
+        } catch (err) {
+            cleanupFile(tempPcm);
+            fs.writeFileSync(outputPath, opusBuffer);
+            resolve(outputPath);
+        }
+    });
+}
+
+function enableVoiceAI(guildId, textChannel = null) {
+    voiceAISessions.set(guildId, {
+        enabled: true,
+        textChannel: textChannel,
+        startedAt: Date.now()
+    });
+    
+    const conn = voiceConnections.get(guildId);
+    if (conn) {
+        setupVoiceReceiver(conn, guildId, textChannel);
+    }
+}
+
+function disableVoiceAI(guildId) {
+    voiceAISessions.delete(guildId);
+    
+    for (const [userId, recording] of voiceRecordings) {
+        if (recording.stream) {
+            recording.stream.destroy();
+        }
+        if (recording.timeout) {
+            clearTimeout(recording.timeout);
+        }
+    }
+    voiceRecordings.clear();
+}
+
+function isVoiceAIEnabled(guildId) {
+    return voiceAISessions.get(guildId)?.enabled || false;
+}
 
 async function handleAI(msg, query) {
     const rateCheck = checkRateLimit(msg.author.id);
@@ -1921,6 +2160,66 @@ client.on(Events.MessageCreate, async (msg) => {
                 } else {
                     await msg.reply('❌ Tidak ada yang diputar');
                 }
+                break;
+
+            // ===== VOICE AI COMMANDS =====
+            case 'voiceai':
+            case 'vai':
+            case 'podcast':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                
+                const voiceSubCmd = args[0]?.toLowerCase();
+                
+                if (voiceSubCmd === 'on' || voiceSubCmd === 'start') {
+                    const jr = await joinUserVoiceChannel(msg.member, msg.guild);
+                    if (!jr.success) return msg.reply(`❌ ${jr.error}`);
+                    
+                    enableVoiceAI(msg.guild.id, msg.channel);
+                    await msg.reply(`🎙️ **Voice AI Activated!**\n\n` +
+                        `📍 Channel: **${jr.channel.name}**\n` +
+                        `🗣️ Wake word: **"${CONFIG.voiceAI.wakeWord}"**\n\n` +
+                        `Contoh: *"${CONFIG.voiceAI.wakeWord}, jelaskan apa itu AI"*`);
+                        
+                } else if (voiceSubCmd === 'off' || voiceSubCmd === 'stop') {
+                    disableVoiceAI(msg.guild.id);
+                    await msg.reply('🔇 Voice AI dinonaktifkan');
+                    
+                } else if (voiceSubCmd === 'status') {
+                    const enabled = isVoiceAIEnabled(msg.guild.id);
+                    const session = voiceAISessions.get(msg.guild.id);
+                    
+                    if (enabled && session) {
+                        const uptime = Math.floor((Date.now() - session.startedAt) / 1000);
+                        await msg.reply(`🎙️ **Voice AI Status**\n\n` +
+                            `Status: 🟢 Active\n` +
+                            `Uptime: ${uptime}s\n` +
+                            `Wake word: "${CONFIG.voiceAI.wakeWord}"`);
+                    } else {
+                        await msg.reply(`🎙️ **Voice AI Status**\n\nStatus: 🔴 Inactive\n\nGunakan \`.voiceai on\` untuk mengaktifkan.`);
+                    }
+                    
+                } else {
+                    await msg.reply(`🎙️ **Voice AI Commands**\n\n` +
+                        `\`.voiceai on\` - Aktifkan mode podcast\n` +
+                        `\`.voiceai off\` - Matikan voice AI\n` +
+                        `\`.voiceai status\` - Cek status\n\n` +
+                        `**Cara pakai:**\n` +
+                        `1. Join voice channel\n` +
+                        `2. Ketik \`.voiceai on\`\n` +
+                        `3. Bicara: *"${CONFIG.voiceAI.wakeWord}, [pertanyaan]"*\n` +
+                        `4. Bot akan menjawab via voice!`);
+                }
+                break;
+                
+            case 'listen':
+            case 'dengar':
+                if (!isAdmin(msg.author.id)) return msg.reply('❌ Admin only');
+                
+                const ljr = await joinUserVoiceChannel(msg.member, msg.guild);
+                if (!ljr.success) return msg.reply(`❌ ${ljr.error}`);
+                
+                enableVoiceAI(msg.guild.id, msg.channel);
+                await msg.reply(`👂 Listening di **${ljr.channel.name}**...\n\nKatakan *"${CONFIG.voiceAI.wakeWord}"* untuk berbicara denganku!`);
                 break;
 
             // ===== SETTINGS COMMANDS =====
@@ -3123,6 +3422,7 @@ async function handleStatusCommand(msg) {
                 value: [
                     `• AI Chat: ✅`,
                     `• Voice TTS: ✅`,
+                    `• Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? '🟢 Active' : '⚪ Inactive'}`,
                     `• Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? '✅' : '❌'}`,
                     `• URL Reading: ✅`,
                     `• File Reading: ✅`,
@@ -3208,12 +3508,17 @@ async function handleHelpCommand(msg) {
                 inline: false
             },
             {
-                name: '🔊 Voice',
+                name: '🔊 Voice & Podcast',
                 value: [
                     '`.join` - Gabung voice channel',
                     '`.leave` - Keluar voice',
                     '`.speak <text>` - Text to speech',
-                    '`.stop` - Stop audio'
+                    '`.stop` - Stop audio',
+                    '',
+                    '**🎙️ Voice AI (Podcast Mode):**',
+                    '`.voiceai on` - Aktifkan mode podcast',
+                    '`.voiceai off` - Matikan voice AI',
+                    '`.listen` - Quick start listening'
                 ].join('\n'),
                 inline: false
             },
