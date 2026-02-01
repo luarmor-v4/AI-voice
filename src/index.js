@@ -805,9 +805,9 @@ const AI_PROVIDERS = {
 
 // Edge-TTS Voices (FREE - untuk semua user)
 const EDGE_TTS_VOICES = [
-    // Indonesia
-    { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
+    // Indonesia 
     { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
+    { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
     // English US
     { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
     { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
@@ -888,7 +888,7 @@ const DEFAULT_SETTINGS = {
     aiProvider: 'groq',
     aiModel: 'llama-3.3-70b-versatile',
     ttsProvider: 'edge-tts',           // 'elevenlabs' atau 'edge-tts'
-    ttsVoice: 'id-ID-GadisNeural',     // Default untuk edge-tts
+    ttsVoice: 'id-ID-ArdiNeural',     // Default untuk edge-tts
     ttsVoiceElevenlabs: 'gmnazjXOFoOcWA59sd5m',  // Default untuk elevenlabs
     searchEnabled: true,
     searchProvider: 'auto',
@@ -3980,4 +3980,5 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
+
 
