@@ -89,7 +89,14 @@ const CONFIG = {
     rateLimitMax: 30,
     voiceInactivityTimeout: 300000,
     maxFileSize: 10 * 1024 * 1024,
-    maxImageSize: 5 * 1024 * 1024,    // ← KOMA DI SINI!
+    maxImageSize: 5 * 1024 * 1024,
+        // ElevenLabs TTS Settings (Admin Only)
+    elevenlabs: {
+        apiKey: process.env.ELEVENLABS_API_KEY,
+        modelId: 'eleven_multilingual_v2',
+        defaultVoice: 'gmnazjXOFoOcWA59sd5m',
+        adminOnly: true  // Hanya admin yang pakai ElevenLabs
+    },
     // Voice AI Settings
         voiceAI: {
         enabled: true,
@@ -786,20 +793,95 @@ const AI_PROVIDERS = {
     }
 };
 
-const TTS_VOICES = [
-    { id: 'id-ID-GadisNeural', name: 'Gadis (ID)', lang: 'id' },
-    { id: 'id-ID-ArdiNeural', name: 'Ardi (ID)', lang: 'id' },
-    { id: 'en-US-JennyNeural', name: 'Jenny (US)', lang: 'en' },
-    { id: 'en-US-GuyNeural', name: 'Guy (US)', lang: 'en' },
-    { id: 'ja-JP-NanamiNeural', name: 'Nanami (JP)', lang: 'ja' }
+// ==================== TTS VOICES ====================
+
+// Edge-TTS Voices (FREE - untuk semua user)
+const EDGE_TTS_VOICES = [
+    // Indonesia
+    { id: 'id-ID-GadisNeural', name: '🇮🇩 Gadis (Wanita)', lang: 'id' },
+    { id: 'id-ID-ArdiNeural', name: '🇮🇩 Ardi (Pria)', lang: 'id' },
+    // English US
+    { id: 'en-US-JennyNeural', name: '🇺🇸 Jenny (Female)', lang: 'en' },
+    { id: 'en-US-GuyNeural', name: '🇺🇸 Guy (Male)', lang: 'en' },
+    { id: 'en-US-AriaNeural', name: '🇺🇸 Aria (Female)', lang: 'en' },
+    { id: 'en-US-DavisNeural', name: '🇺🇸 Davis (Male)', lang: 'en' },
+    // English UK
+    { id: 'en-GB-SoniaNeural', name: '🇬🇧 Sonia (Female)', lang: 'en' },
+    { id: 'en-GB-RyanNeural', name: '🇬🇧 Ryan (Male)', lang: 'en' },
+    // Japanese
+    { id: 'ja-JP-NanamiNeural', name: '🇯🇵 Nanami (Female)', lang: 'ja' },
+    { id: 'ja-JP-KeitaNeural', name: '🇯🇵 Keita (Male)', lang: 'ja' },
+    // Korean
+    { id: 'ko-KR-SunHiNeural', name: '🇰🇷 SunHi (Female)', lang: 'ko' },
+    { id: 'ko-KR-InJoonNeural', name: '🇰🇷 InJoon (Male)', lang: 'ko' },
+    // Chinese
+    { id: 'zh-CN-XiaoxiaoNeural', name: '🇨🇳 Xiaoxiao (Female)', lang: 'zh' },
+    { id: 'zh-CN-YunxiNeural', name: '🇨🇳 Yunxi (Male)', lang: 'zh' },
+    // French
+    { id: 'fr-FR-DeniseNeural', name: '🇫🇷 Denise (Female)', lang: 'fr' },
+    { id: 'fr-FR-HenriNeural', name: '🇫🇷 Henri (Male)', lang: 'fr' },
+    // German
+    { id: 'de-DE-KatjaNeural', name: '🇩🇪 Katja (Female)', lang: 'de' },
+    { id: 'de-DE-ConradNeural', name: '🇩🇪 Conrad (Male)', lang: 'de' },
+    // Spanish
+    { id: 'es-ES-ElviraNeural', name: '🇪🇸 Elvira (Female)', lang: 'es' },
+    { id: 'es-MX-DaliaNeural', name: '🇲🇽 Dalia (Female)', lang: 'es' },
+    // Portuguese
+    { id: 'pt-BR-FranciscaNeural', name: '🇧🇷 Francisca (Female)', lang: 'pt' },
+    { id: 'pt-BR-AntonioNeural', name: '🇧🇷 Antonio (Male)', lang: 'pt' },
+    // Russian
+    { id: 'ru-RU-SvetlanaNeural', name: '🇷🇺 Svetlana (Female)', lang: 'ru' },
+    { id: 'ru-RU-DmitryNeural', name: '🇷🇺 Dmitry (Male)', lang: 'ru' }
 ];
+
+// ElevenLabs Voices (PREMIUM - hanya admin)
+const ELEVENLABS_VOICES = [
+    // ===== YOUR SELECTED VOICE =====
+    { id: 'gmnazjXOFoOcWA59sd5m', name: '🎙️ Default Voice', lang: 'multi' },
+    
+    // ===== ELEVENLABS PREMADE =====
+    { id: 'EXAVITQu4vr4xnSDxMaL', name: '🇺🇸 Bella (Female)', lang: 'en' },
+    { id: 'ErXwobaYiN019PkySvjV', name: '🇺🇸 Antoni (Male)', lang: 'en' },
+    { id: 'MF3mGyEYCl7XYWbV9V6O', name: '🇺🇸 Elli (Female)', lang: 'en' },
+    { id: 'TxGEqnHWrfWFTfGW9XjX', name: '🇺🇸 Josh (Male)', lang: 'en' },
+    { id: 'VR6AewLTigWG4xSOukaG', name: '🇺🇸 Arnold (Male)', lang: 'en' },
+    { id: 'pNInz6obpgDQGcFmaJgB', name: '🇺🇸 Adam (Male)', lang: 'en' },
+    { id: 'yoZ06aMxZJJ28mfd3POQ', name: '🇺🇸 Sam (Male)', lang: 'en' },
+    { id: '21m00Tcm4TlvDq8ikWAM', name: '🇺🇸 Rachel (Female)', lang: 'en' },
+    { id: 'AZnzlk1XvdvUeBnXmlld', name: '🇺🇸 Domi (Female)', lang: 'en' },
+    { id: 'IKne3meq5aSn9XLyUdCD', name: '🇺🇸 Charlie (Male)', lang: 'en' },
+    { id: 'XB0fDUnXU5powFXDhCwa', name: '🇬🇧 Charlotte (Female)', lang: 'en' },
+    { id: 'Yko7PKs66umPhCgzNzNg', name: '🇬🇧 Thomas (Male)', lang: 'en' },
+    { id: 'pFZP5JQG7iQjIQuC4Bku', name: '🇬🇧 Lily (Female)', lang: 'en' },
+    { id: 'TX3LPaxmHKxFdv7VOQHJ', name: '🇺🇸 Liam (Male)', lang: 'en' },
+    { id: 'XrExE9yKIg1WjnnlVkGX', name: '🇺🇸 Matilda (Female)', lang: 'en' },
+    
+    // ===== TAMBAHKAN VOICE BARU DI SINI =====
+    // { id: 'YOUR_VOICE_ID', name: '🎤 Nama Voice', lang: 'id' },
+];
+
+// Helper functions
+function getTTSVoices(provider) {
+    return provider === 'elevenlabs' ? ELEVENLABS_VOICES : EDGE_TTS_VOICES;
+}
+
+function getDefaultVoice(provider) {
+    return provider === 'elevenlabs' 
+        ? 'gmnazjXOFoOcWA59sd5m' 
+        : 'id-ID-GadisNeural';
+}
+
+// Backward compatibility
+const TTS_VOICES = EDGE_TTS_VOICES;
 
 // ==================== DEFAULT SETTINGS ====================
 
 const DEFAULT_SETTINGS = {
     aiProvider: 'groq',
     aiModel: 'llama-3.3-70b-versatile',
-    ttsVoice: 'id-ID-GadisNeural',
+    ttsProvider: 'edge-tts',           // 'elevenlabs' atau 'edge-tts'
+    ttsVoice: 'id-ID-GadisNeural',     // Default untuk edge-tts
+    ttsVoiceElevenlabs: 'gmnazjXOFoOcWA59sd5m',  // Default untuk elevenlabs
     searchEnabled: true,
     searchProvider: 'auto',
     geminiGrounding: true
@@ -940,21 +1022,99 @@ function cleanTextForTTS(text) {
         .trim();
 }
 
-async function generateTTS(text, voice) {
-    return new Promise((resolve, reject) => {
-        ensureTempDir();
-        const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
-        const safeText = cleanTextForTTS(text).replace(/"/g, "'").replace(/`/g, "'");
+async function generateTTS(text, voice, userId = null) {
+    ensureTempDir();
+    const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
+    const safeText = cleanTextForTTS(text).slice(0, 2500);
 
-        if (!safeText || safeText.length < 2) return reject(new Error('Text too short'));
+    if (!safeText || safeText.length < 2) {
+        throw new Error('Text too short');
+    }
 
-        exec(`edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`, 
-            { timeout: 30000 }, 
-            (err) => {
-                if (err) reject(err);
-                else resolve(outputPath);
+    const apiKey = CONFIG.elevenlabs?.apiKey;
+    const userIsAdmin = userId ? isAdmin(userId) : false;
+    
+    // ElevenLabs hanya untuk admin + jika ada API key
+    const useElevenlabs = userIsAdmin && apiKey && apiKey !== 'xxx' && apiKey.length > 10;
+    
+    if (useElevenlabs) {
+        try {
+            // Pastikan voice adalah ElevenLabs voice ID
+            const elevenVoice = isElevenlabsVoice(voice) ? voice : CONFIG.elevenlabs.defaultVoice;
+            await generateElevenLabsTTS(safeText, elevenVoice, outputPath);
+            console.log(`🔊 ElevenLabs (Admin) | Voice: ${elevenVoice}`);
+            return outputPath;
+        } catch (error) {
+            console.error('❌ ElevenLabs error:', error.message);
+            console.log('⚠️ Falling back to edge-tts...');
+        }
+    }
+    
+    // Edge-TTS untuk user biasa atau fallback
+    const edgeVoice = isEdgeTTSVoice(voice) ? voice : 'id-ID-GadisNeural';
+    await generateEdgeTTS(safeText, edgeVoice, outputPath);
+    console.log(`🔊 Edge-TTS${userIsAdmin ? ' (Fallback)' : ''} | Voice: ${edgeVoice}`);
+    
+    return outputPath;
+}
+
+// Check apakah voice ID adalah ElevenLabs
+function isElevenlabsVoice(voiceId) {
+    return ELEVENLABS_VOICES.some(v => v.id === voiceId);
+}
+
+// Check apakah voice ID adalah Edge-TTS
+function isEdgeTTSVoice(voiceId) {
+    return voiceId.includes('Neural') || EDGE_TTS_VOICES.some(v => v.id === voiceId);
+}
+
+async function generateElevenLabsTTS(text, voiceId, outputPath) {
+    const apiKey = CONFIG.elevenlabs.apiKey;
+    const modelId = CONFIG.elevenlabs.modelId || 'eleven_multilingual_v2';
+    
+    const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: 'POST',
+        headers: {
+            'Accept': 'audio/mpeg',
+            'Content-Type': 'application/json',
+            'xi-api-key': apiKey
+        },
+        body: JSON.stringify({
+            text: text,
+            model_id: modelId,
+            voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+                style: 0.0,
+                use_speaker_boost: true
             }
-        );
+        })
+    });
+    
+    if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`ElevenLabs API: ${response.status} - ${errorText}`);
+    }
+    
+    const audioBuffer = await response.buffer();
+    
+    if (audioBuffer.length < 1000) {
+        throw new Error('ElevenLabs returned empty audio');
+    }
+    
+    fs.writeFileSync(outputPath, audioBuffer);
+    return outputPath;
+}
+
+function generateEdgeTTS(text, voice, outputPath) {
+    return new Promise((resolve, reject) => {
+        const safeText = text.replace(/"/g, "'").replace(/`/g, "'");
+        const cmd = `edge-tts --voice "${voice}" --text "${safeText}" --write-media "${outputPath}"`;
+        
+        exec(cmd, { timeout: 30000 }, (err) => {
+            if (err) reject(err);
+            else resolve(outputPath);
+        });
     });
 }
 
@@ -1424,14 +1584,18 @@ function createSettingsEmbed(guildId) {
     const s = getSettings(guildId);
     const ai = AI_PROVIDERS[s.aiProvider];
     const model = ai?.models.find(m => m.id === s.aiModel) || { name: s.aiModel };
+    
+    // Find voice names
+    const edgeVoice = EDGE_TTS_VOICES.find(v => v.id === s.ttsVoice);
+    const elevenVoice = ELEVENLABS_VOICES.find(v => v.id === s.ttsVoiceElevenlabs);
 
     return new EmbedBuilder()
         .setColor(0x5865F2)
-        .setTitle('⚙️ Aria Settings')
+        .setTitle('⚙️ Toing Settings')
         .addFields(
             { name: '🧠 AI Provider', value: `**${ai?.name || s.aiProvider}**\n${model.name}`, inline: true },
-            { name: '🔊 TTS Voice', value: s.ttsVoice.split('-').slice(-1)[0], inline: true },
-            { name: '🔍 Search', value: s.geminiGrounding ? '🟢 Grounding ON' : (s.searchEnabled ? '🟢 ON' : '🔴 OFF'), inline: true }
+            { name: '🔊 TTS (Public)', value: edgeVoice?.name || s.ttsVoice, inline: true },
+            { name: '🎙️ TTS (Admin)', value: elevenVoice?.name || 'Default', inline: true },
         )
         .setFooter({ text: 'v3.0.0 • Complete Edition' })
         .setTimestamp();
@@ -1461,13 +1625,40 @@ function createModelMenu(guildId) {
     );
 }
 
+// Menu untuk Edge-TTS (semua user)
 function createVoiceMenu(guildId) {
     const s = getSettings(guildId);
-    const opts = TTS_VOICES.map(v => ({
-        label: v.name, value: v.id, default: v.id === s.ttsVoice
+    
+    const opts = EDGE_TTS_VOICES.slice(0, 25).map(v => ({
+        label: v.name.slice(0, 25),
+        value: v.id,
+        default: v.id === s.ttsVoice
     }));
+    
     return new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder().setCustomId('sel_voice').setPlaceholder('🔊 Voice').addOptions(opts)
+        new StringSelectMenuBuilder()
+            .setCustomId('sel_voice')
+            .setPlaceholder('🔊 Voice (Public - Edge-TTS)')
+            .addOptions(opts)
+    );
+}
+
+// Menu untuk ElevenLabs (admin only)
+function createElevenlabsVoiceMenu(guildId) {
+    const s = getSettings(guildId);
+    
+    const opts = ELEVENLABS_VOICES.slice(0, 25).map(v => ({
+        label: v.name.slice(0, 25),
+        value: v.id,
+        description: v.lang === 'multi' ? 'Multilingual' : v.lang.toUpperCase(),
+        default: v.id === (s.ttsVoiceElevenlabs || CONFIG.elevenlabs.defaultVoice)
+    }));
+    
+    return new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+            .setCustomId('sel_voice_elevenlabs')
+            .setPlaceholder('🎙️ Voice (Admin - ElevenLabs)')
+            .addOptions(opts)
     );
 }
 
@@ -1501,8 +1692,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
             if (p?.models[0]) updateSettings(guildId, 'aiModel', p.models[0].id);
         } else if (interaction.customId === 'sel_model') {
             updateSettings(guildId, 'aiModel', interaction.values[0]);
-        } else if (interaction.customId === 'sel_voice') {
+                } else if (interaction.customId === 'sel_voice') {
             updateSettings(guildId, 'ttsVoice', interaction.values[0]);
+        } else if (interaction.customId === 'sel_voice_elevenlabs') {
+            if (!isAdmin(interaction.user.id)) {
+                return interaction.reply({ content: '❌ ElevenLabs hanya untuk Admin', ephemeral: true });
+            }
+            updateSettings(guildId, 'ttsVoiceElevenlabs', interaction.values[0]);
         } else if (interaction.customId === 'search_toggle') {
             const s = getSettings(guildId);
             updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
@@ -1735,8 +1931,9 @@ async function processVoiceInput(userId, guildId, audioBuffer, textChannel) {
             textChannel.send(`${response.text}\n\n-# ${info}`).catch(() => {});
         }
         
-                        const s = getSettings(guildId);
-        const ttsFile = await generateTTS(response.text, s.ttsVoice);
+              const s = getSettings(guildId);
+        const voice = isAdmin(userId) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
+        const ttsFile = await generateTTS(response.text, voice, userId);
         await playTTSInVoice(guildId, ttsFile);
         
         console.log(`✅ Voice response complete!`);
@@ -1915,8 +2112,9 @@ async function handleSpeak(msg, text) {
     const status = await msg.reply('🔊 Generating...');
 
     try {
-        const s = getSettings(msg.guild.id);
-        const ttsFile = await generateTTS(text, s.ttsVoice);
+                const s = getSettings(msg.guild.id);
+        const voice = isAdmin(msg.author.id) ? (s.ttsVoiceElevenlabs || s.ttsVoice) : s.ttsVoice;
+        const ttsFile = await generateTTS(text, voice, msg.author.id);
         if (ttsFile) {
             await playTTSInVoice(msg.guild.id, ttsFile);
             await status.edit('🔊 Playing...');
@@ -2360,9 +2558,18 @@ client.on(Events.MessageCreate, async (msg) => {
                 const comps = [
                     createProviderMenu(msg.guild.id),
                     createModelMenu(msg.guild.id),
-                    createVoiceMenu(msg.guild.id),
-                    createModeButtons(msg.guild.id)
-                ].filter(Boolean);
+                    createVoiceMenu(msg.guild.id)
+                ];
+                
+                // Tambah ElevenLabs menu jika user adalah admin
+                if (isAdmin(msg.author.id) && CONFIG.elevenlabs?.apiKey) {
+                    comps.push(createElevenlabsVoiceMenu(msg.guild.id));
+                }
+                
+                comps.push(createModeButtons(msg.guild.id));
+                
+                // Discord limit 5 action rows
+                const finalComps = comps.filter(Boolean).slice(0, 5);
                 await msg.reply({ embeds: [createSettingsEmbed(msg.guild.id)], components: comps });
                 break;
 
