@@ -31,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
     # Install edge-tts as fallback
-    && pip3 install --no-cache-dir --break-system-packages edge-tts \
+    && pip3 install --no-cache-dir edge-tts \
     # Cleanup
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /root/.cache
