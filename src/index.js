@@ -510,23 +510,42 @@ async function performSearch(query, provider = 'auto') {
 // ==================== REASONING FUNCTIONS ====================
 
 function parseThinkingResponse(text) {
-    const thinkingPatterns = [
-        /\[THINKING\](.*?)\[\/THINKING\]/s,
-        /<thinking>(.*?)<\/thinking>/s,
-        /💭 Thinking:(.*?)(?=\n\n[^💭])/s
-    ];
-    
     let thinking = '';
     let answer = text;
     
-    for (const pattern of thinkingPatterns) {
-        const match = text.match(pattern);
-        if (match) {
-            thinking = match[1].trim();
-            answer = text.replace(match[0], '').trim();
-            break;
+    // Pattern untuk extract [THINKING]...[/THINKING]
+    const thinkingMatch = text.match(/\[THINKING\]([\s\S]*?)\[\/THINKING\]/i);
+    if (thinkingMatch) {
+        thinking = thinkingMatch[1].trim();
+        answer = text.replace(thinkingMatch[0], '').trim();
+    }
+    
+    // Pattern untuk extract [ANSWER]...[/ANSWER]
+    const answerMatch = answer.match(/\[ANSWER\]([\s\S]*?)\[\/ANSWER\]/i);
+    if (answerMatch) {
+        answer = answerMatch[1].trim();
+    } else {
+        // Jika tidak ada [ANSWER] tag, ambil setelah [/THINKING]
+        const afterThinking = answer.match(/\[\/THINKING\]([\s\S]*)/i);
+        if (afterThinking) {
+            answer = afterThinking[1].trim();
         }
     }
+    
+    // Bersihkan tag-tag yang tersisa
+    answer = answer
+        .replace(/\[THINKING\][\s\S]*?\[\/THINKING\]/gi, '')
+        .replace(/\[ANSWER\]/gi, '')
+        .replace(/\[\/ANSWER\]/gi, '')
+        .replace(/\[ANALYSIS TASK\][\s\S]*?(?=\[|\n\n)/gi, '')
+        .replace(/\[TASK\][\s\S]*?(?=\[|\n\n)/gi, '')
+        .replace(/\[REASONING PROCESS[\s\S]*?(?=\[SOURCE|\[ANSWER|\n\n\n)/gi, '')
+        .replace(/\[SOURCES[\s\S]*?(?=\[ANSWER|\[THINKING])/gi, '')
+        .replace(/\[USER REQUEST\][\s\S]*?(?=\[|\n\n)/gi, '')
+        .replace(/\[CURRENT DATE:.*?\]/gi, '')
+        .replace(/━+/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
     
     return { thinking, answer };
 }
