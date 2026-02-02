@@ -87,7 +87,7 @@ const CONFIG = {
     puterTTS: {
         apiUrl: 'https://puter-tts-api.onrender.com',
         voiceId: 'gmnazjXOFoOcWA59sd5m',
-        enabled: true
+        enabled: false
     },
     // ---------------------
     tempPath: './temp',
@@ -1116,38 +1116,38 @@ async function generateTTS(text, voice, userId = null) {
 
     if (!safeText || safeText.length < 2) throw new Error('Text too short');
 
-    // Cek Admin & Puter Status
-    const userIsAdmin = userId ? isAdmin(String(userId)) : false;
+    // Cek status Puter (harus true di config)
     const usePuter = CONFIG.puterTTS?.enabled;
+    const userIsAdmin = userId ? isAdmin(String(userId)) : false;
+    
+    // Cek apakah ini voice ID ElevenLabs (format panjang)
+    const isElevenLabs = voice && (voice.length > 20 || voice.startsWith('gmn'));
 
-    // Cek apakah voice ID valid untuk ElevenLabs (bukan Edge-TTS)
-    const isElevenLabs = isElevenlabsVoice(voice);
+    console.log(`🔊 TTS Request: Voice=${voice} Admin=${userIsAdmin} Puter=${usePuter}`);
 
-    console.log(`🔊 TTS Request: Voice=${voice} Admin=${userIsAdmin} IsEL=${isElevenLabs}`);
-
-    // LOGIKA: Admin + Puter Aktif + Voice ID ElevenLabs => Pakai Puter
-    if (userIsAdmin && usePuter && isElevenLabs) {
+    // 1. Coba Puter.js (Hanya jika enabled + admin + voice cocok)
+    if (usePuter && userIsAdmin && isElevenLabs) {
         try {
             console.log(`🎤 Puter.js Generating: ${voice}`);
-            
-            const audioBuffer = await generatePuterTTS(safeText, {
-                voiceId: voice // Gunakan suara yang dipilih dari parameter
-            });
-            
+            const audioBuffer = await generatePuterTTS(safeText, { voiceId: voice });
             fs.writeFileSync(outputPath, audioBuffer);
-            console.log(`✅ Puter.js Success: ${voice}`);
+            console.log(`✅ Puter.js Success`);
             return outputPath;
         } catch (error) {
-            console.warn(`⚠️ Puter.js Failed (${error.message}), falling back...`);
+            console.warn(`⚠️ Puter.js Failed, fallback to Edge-TTS: ${error.message}`);
         }
     }
 
-    // FALLBACK: Edge-TTS
-    // Jika voice ID bukan Edge-TTS valid, default ke Gadis
-    const edgeVoice = isEdgeTTSVoice(voice) ? voice : 'id-ID-GadisNeural';
-    
+    // 2. FALLBACK KE EDGE-TTS (Pasti Jalan)
+    // Jika voice ID itu punya ElevenLabs (panjang), ganti ke default Edge-TTS
+    let edgeVoice = voice;
+    if (!edgeVoice || edgeVoice.length > 30 || !edgeVoice.includes('Neural')) {
+        edgeVoice = 'id-ID-GadisNeural'; // Default Mbak Gadis
+    }
+
+    console.log(`🔊 Generating Edge-TTS: ${edgeVoice}`);
     await generateEdgeTTS(safeText, edgeVoice, outputPath);
-    console.log(`✅ Edge-TTS Generated: ${edgeVoice}`);
+    console.log(`✅ Edge-TTS Success`);
     
     return outputPath;
 }
