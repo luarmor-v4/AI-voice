@@ -48,6 +48,7 @@ const mammoth = require('mammoth');
 const xlsx = require('xlsx');
 
 const DynamicManager = require('./modules/dynamicManager');
+const { generateMiniMaxTTS, isMiniMaxVoice, MINIMAX_VOICES } = require('./modules/minimax-tts');
 
 // ==================== HEALTH SERVER ====================
 
@@ -98,12 +99,10 @@ const CONFIG = {
     maxImageSize: 5 * 1024 * 1024,
         // ElevenLabs TTS Settings (Admin Only)
         // ElevenLabs TTS Settings (Admin Only + Proxy)
-    elevenlabs: {
-        apiKey: process.env.ELEVENLABS_API_KEY,
-        modelId: 'eleven_multilingual_v2',
-        defaultVoice: 'gmnazjXOFoOcWA59sd5m', // Voice ID Toing
-        adminOnly: true,
-        scraperApiKey: process.env.SCRAPERAPI_KEY // Tambah environment variable ini nanti
+        minimax: {
+        apiKey: process.env.MINIMAX_API_KEY,
+        defaultVoiceId: process.env.MINIMAX_VOICE_ID,
+        adminOnly: true
     },
     // Voice AI Settings
         voiceAI: {
@@ -843,30 +842,7 @@ const EDGE_TTS_VOICES = [
 ];
 
 // ElevenLabs Voices (PREMIUM - hanya admin)
-const ELEVENLABS_VOICES = [
-    // ===== YOUR SELECTED VOICE =====
-    { id: 'gmnazjXOFoOcWA59sd5m', name: '🎙️ Default Voice', lang: 'multi' },
-    
-    // ===== ELEVENLABS PREMADE =====
-    { id: 'EXAVITQu4vr4xnSDxMaL', name: '🇺🇸 Bella (Female)', lang: 'en' },
-    { id: 'ErXwobaYiN019PkySvjV', name: '🇺🇸 Antoni (Male)', lang: 'en' },
-    { id: 'MF3mGyEYCl7XYWbV9V6O', name: '🇺🇸 Elli (Female)', lang: 'en' },
-    { id: 'TxGEqnHWrfWFTfGW9XjX', name: '🇺🇸 Josh (Male)', lang: 'en' },
-    { id: 'VR6AewLTigWG4xSOukaG', name: '🇺🇸 Arnold (Male)', lang: 'en' },
-    { id: 'pNInz6obpgDQGcFmaJgB', name: '🇺🇸 Adam (Male)', lang: 'en' },
-    { id: 'yoZ06aMxZJJ28mfd3POQ', name: '🇺🇸 Sam (Male)', lang: 'en' },
-    { id: '21m00Tcm4TlvDq8ikWAM', name: '🇺🇸 Rachel (Female)', lang: 'en' },
-    { id: 'AZnzlk1XvdvUeBnXmlld', name: '🇺🇸 Domi (Female)', lang: 'en' },
-    { id: 'IKne3meq5aSn9XLyUdCD', name: '🇺🇸 Charlie (Male)', lang: 'en' },
-    { id: 'XB0fDUnXU5powFXDhCwa', name: '🇬🇧 Charlotte (Female)', lang: 'en' },
-    { id: 'Yko7PKs66umPhCgzNzNg', name: '🇬🇧 Thomas (Male)', lang: 'en' },
-    { id: 'pFZP5JQG7iQjIQuC4Bku', name: '🇬🇧 Lily (Female)', lang: 'en' },
-    { id: 'TX3LPaxmHKxFdv7VOQHJ', name: '🇺🇸 Liam (Male)', lang: 'en' },
-    { id: 'XrExE9yKIg1WjnnlVkGX', name: '🇺🇸 Matilda (Female)', lang: 'en' },
-    
-    // ===== TAMBAHKAN VOICE BARU DI SINI =====
-    // { id: 'YOUR_VOICE_ID', name: '🎤 Nama Voice', lang: 'id' },
-];
+const ELEVENLABS_VOICES = MINIMAX_VOICES;
 
 // Helper functions
 function getTTSVoices(provider) {
@@ -889,7 +865,7 @@ const DEFAULT_SETTINGS = {
     aiModel: 'llama-3.3-70b-versatile',
     ttsProvider: 'edge-tts',           // 'elevenlabs' atau 'edge-tts'
     ttsVoice: 'id-ID-ArdiNeural',     // Default untuk edge-tts
-    ttsVoiceElevenlabs: 'gmnazjXOFoOcWA59sd5m',  // Default untuk elevenlabs
+    ttsVoiceElevenlabs: process.env.MINIMAX_VOICE_ID,
     searchEnabled: true,
     searchProvider: 'auto',
     geminiGrounding: true
@@ -1034,33 +1010,38 @@ function cleanTextForTTS(text) {
 async function generateTTS(text, voice, userId = null) {
     ensureTempDir();
     const outputPath = path.join(CONFIG.tempPath, `tts_${Date.now()}.mp3`);
-    const safeText = cleanTextForTTS(text).slice(0, 2500);
+    const safeText = cleanTextForTTS(text).slice(0, 4500);
 
     if (!safeText || safeText.length < 2) {
         throw new Error('Text too short');
     }
 
-    const apiKey = CONFIG.elevenlabs?.apiKey;
+    const miniMaxKey = CONFIG.minimax?.apiKey;
     const userIsAdmin = userId ? isAdmin(String(userId)) : false;
-    const hasValidKey = apiKey && apiKey !== 'xxx' && apiKey.length > 10;
+    const hasValidKey = miniMaxKey && miniMaxKey !== 'xxx' && miniMaxKey.length > 20;
     
-    // Debug log
-    console.log(`🔊 TTS: userId=${userId}, isAdmin=${userIsAdmin}, hasKey=${hasValidKey}`);
+    console.log(`🔊 TTS: userId=${userId}, isAdmin=${userIsAdmin}, hasMiniMax=${hasValidKey}`);
     
-    // ElevenLabs untuk admin + jika ada API key valid
+    // MiniMax untuk admin
     if (userIsAdmin && hasValidKey) {
         try {
-            // Gunakan voice ElevenLabs atau default
-            const elevenVoice = isElevenlabsVoice(voice) ? voice : CONFIG.elevenlabs.defaultVoice;
-            await generateElevenLabsTTS(safeText, elevenVoice, outputPath);
-            console.log(`✅ ElevenLabs TTS (Admin) | Voice: ${elevenVoice}`);
+            const miniMaxVoice = isMiniMaxVoice(voice) ? voice : CONFIG.minimax.defaultVoiceId;
+            console.log(`🎤 Using MiniMax (Admin) | Voice: ${miniMaxVoice?.substring(0, 30)}...`);
+            
+            const audioBuffer = await generateMiniMaxTTS(safeText, {
+                voiceId: miniMaxVoice,
+                speed: 1.0,
+                turbo: false
+            });
+            
+            fs.writeFileSync(outputPath, audioBuffer);
+            console.log(`✅ MiniMax TTS saved: ${outputPath}`);
             return outputPath;
+            
         } catch (error) {
-            console.error('❌ ElevenLabs error:', error.message);
-            console.log('⚠️ Falling back to edge-tts...');
+            console.error('❌ MiniMax error:', error.message);
+            console.log('⚠️ Falling back to Edge-TTS...');
         }
-    } else {
-        console.log(`ℹ️ Using Edge-TTS: admin=${userIsAdmin}, key=${hasValidKey}`);
     }
     
     // Edge-TTS untuk user biasa atau fallback
@@ -1073,7 +1054,7 @@ async function generateTTS(text, voice, userId = null) {
 
 // Check apakah voice ID adalah ElevenLabs
 function isElevenlabsVoice(voiceId) {
-    return ELEVENLABS_VOICES.some(v => v.id === voiceId);
+    return isMiniMaxVoice(voiceId);
 }
 
 // Check apakah voice ID adalah Edge-TTS
@@ -1628,7 +1609,7 @@ function createSettingsEmbed(guildId) {
     
     // Find voice names
     const edgeVoice = EDGE_TTS_VOICES.find(v => v.id === s.ttsVoice);
-    const elevenVoice = ELEVENLABS_VOICES.find(v => v.id === s.ttsVoiceElevenlabs);
+    const elevenVoice = ELEVENLABS_VOICES.find(v => v.id === s.ttsVoiceElevenlabs) || { name: 'MiniMax Clone' };
 
     return new EmbedBuilder()
         .setColor(0x5865F2)
@@ -1692,13 +1673,13 @@ function createElevenlabsVoiceMenu(guildId) {
         label: v.name.slice(0, 25),
         value: v.id,
         description: v.lang === 'multi' ? 'Multilingual' : v.lang.toUpperCase(),
-        default: v.id === (s.ttsVoiceElevenlabs || CONFIG.elevenlabs.defaultVoice)
+        default: v.id === (s.ttsVoiceElevenlabs || CONFIG.minimax.defaultVoiceId)
     }));
     
     return new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('sel_voice_elevenlabs')
-            .setPlaceholder('🎙️ Voice (Admin - ElevenLabs)')
+            .setPlaceholder('🎙️ Voice (Admin - MiniMax)')
             .addOptions(opts)
     );
 }
@@ -1736,11 +1717,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 } else if (interaction.customId === 'sel_voice') {
             updateSettings(guildId, 'ttsVoice', interaction.values[0]);
         } else if (interaction.customId === 'sel_voice_elevenlabs') {
-            if (!isAdmin(interaction.user.id)) {
-                return interaction.reply({ content: '❌ ElevenLabs hanya untuk Admin', ephemeral: true });
-            }
-            updateSettings(guildId, 'ttsVoiceElevenlabs', interaction.values[0]);
-        } else if (interaction.customId === 'search_toggle') {
+    if (!isAdmin(interaction.user.id)) {
+        return interaction.reply({ content: '❌ MiniMax hanya untuk Admin', ephemeral: true });
+    }
+    updateSettings(guildId, 'ttsVoiceElevenlabs', interaction.values[0]);
+} else if (interaction.customId === 'search_toggle') {
             const s = getSettings(guildId);
             updateSettings(guildId, 'searchEnabled', !s.searchEnabled);
         } else if (interaction.customId === 'grounding_toggle') {
@@ -2610,9 +2591,9 @@ client.on(Events.MessageCreate, async (msg) => {
                 ];
                 
                 // Tambah ElevenLabs menu jika user adalah admin
-                if (isAdmin(msg.author.id) && CONFIG.elevenlabs?.apiKey) {
-                    comps.push(createElevenlabsVoiceMenu(msg.guild.id));
-                }
+                if (isAdmin(msg.author.id) && CONFIG.minimax?.apiKey) {
+    comps.push(createElevenlabsVoiceMenu(msg.guild.id));
+}
                 
                 comps.push(createModeButtons(msg.guild.id));
                 
@@ -3807,7 +3788,7 @@ async function handleStatusCommand(msg) {
                     `• AI Chat: ✅`,
                     `• Voice AI: ${isVoiceAIEnabled(msg.guild.id) ? '🟢 ON' : '⚪ OFF'}`,
                     `• TTS Public: Edge-TTS ✅`,
-                    `• TTS Admin: ${CONFIG.elevenlabs?.apiKey ? 'ElevenLabs 🟢' : 'Edge-TTS ⚪'}`,
+                    `• TTS Admin: ${CONFIG.minimax?.apiKey ? 'MiniMax 🟢' : 'Edge-TTS ⚪'}`,
                     `• Web Search: ${CONFIG.serperApiKey || CONFIG.tavilyApiKey ? '✅' : '❌'}`,
                     `• Image Analysis: ${CONFIG.geminiApiKey ? '✅' : '❌'}`
                 ].join('\n'),
@@ -3987,6 +3968,3 @@ client.login(CONFIG.token).then(() => {
     if (err.message.includes('DISALLOWED_INTENTS')) console.error('Enable MESSAGE CONTENT INTENT di Developer Portal!');
     process.exit(1);
 });
-
-
-
